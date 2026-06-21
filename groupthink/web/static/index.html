@@ -87,8 +87,8 @@
     <h2>Large folder</h2>
     <p id="bigfolder-msg" class="muted"></p>
     <div class="row">
-      <button id="bf-compress">Compress to proxies &amp; analyze</button>
-      <button class="secondary" id="bf-asis">Analyze as-is</button>
+      <button id="bf-asis">Analyze as-is (recommended)</button>
+      <button class="secondary" id="bf-compress">Compress first, then analyze</button>
       <button class="ghost" id="bf-cancel">Cancel</button>
     </div>
   </div>
@@ -280,8 +280,10 @@ function startAnalyze(folder) {
 function showBigFolderPrompt(folder, info) {
   const panel = document.getElementById('bigfolder');
   document.getElementById('bigfolder-msg').textContent =
-    `That folder is ${info.total_human} across ${info.count} video(s) — over the ${info.threshold_gb} GB threshold. ` +
-    `Compressing to 720p proxies first saves a lot of space and speeds everything up. Your originals are left untouched.`;
+    `That folder is ${info.total_human} across ${info.count} video(s). Since you're analyzing in place ` +
+    `(no upload), you usually don't need to compress — analysis only reads the audio, and rendering only ` +
+    `cuts the short quote clips. "Analyze as-is" is the fast choice. Compressing first (slower, re-encodes ` +
+    `everything) only helps if you want smaller archived copies. Originals are always left untouched.`;
   document.getElementById('bf-compress').onclick = () => { panel.classList.add('hidden'); startCompress(folder); };
   document.getElementById('bf-asis').onclick    = () => { panel.classList.add('hidden'); startAnalyze(folder); };
   document.getElementById('bf-cancel').onclick  = () => panel.classList.add('hidden');
