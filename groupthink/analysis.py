@@ -1,0 +1,223 @@
+"""Stage 3 — find cross-session themes and select supporting quotes.
+
+This is the judgement-heavy step and the heart of the tool: Claude reads every
+session transcript and returns themes, each with 3-6 supporting quotes drawn
+from across the sessions. Claude references quotes by **utterance id** only — it
+never emits a timecode — so we resolve the real start/end from the transcripts
+afterwards and hallucinated timecodes are structurally impossible.
+
+When no ANTHROPIC_API_KEY is present, a naive keyword-grouping fallback keeps the
+demo producing a (rougher) report end-to-end.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+
+from .config import Settings
+from .models import (
+    AnalysisResult,
+    QuoteSelection,
+    ResolvedQuote,
+    ResolvedTheme,
+    ThemeDraft,
+    ThemeReport,
+    Transcript,
+)
+
+SYSTEM_PROMPT = """\
+You are a senior qualitative researcher analyzing transcripts from a set of \
+focus group sessions. Multiple sessions discussed the same topic with different \
+respondents.
+
+Your job is to identify the common themes that recur ACROSS the sessions — the \
+ideas that come up again and again — and to assemble a presentable highlight \
+reel from them.
+
+For each theme:
+- Write a short, presentable title (3-7 words) suitable for an on-screen card.
+- Write a one or two sentence summary in a researcher's voice.
+- Select 3-6 of the strongest supporting quotes. Prefer quotes drawn from \
+DIFFERENT sessions and different speakers so the theme is shown to be shared, \
+not the opinion of one person.
+
+Rules for quotes:
+- Reference each quote by its exact utterance id (e.g. S2-0031), copied from the \
+transcript. Never invent an id.
+- Copy the quote text verbatim from that utterance — do not paraphrase.
+- Only use utterances that actually appear in the transcript provided.
+
+Aim for 3-6 themes, ordered from most to least prominent.\
+"""
+
+
+def render_transcripts(transcripts: list[Transcript]) -> str:
+    """Flatten all sessions into a single id-tagged document for the prompt."""
+    blocks: list[str] = []
+    for t in transcripts:
+        lines = [f"### Session {t.session_id} (file: {t.source_video})"]
+        for u in t.utterances:
+            lines.append(f"[{u.uid}] {u.speaker}: {u.text}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+class ClaudeAnalyzer:
+    name = "claude"
+
+    def __init__(self, api_key: str, model: str) -> None:
+        import anthropic
+
+        self._client = anthropic.Anthropic(api_key=api_key)
+        self._model = model
+
+    def analyze(self, transcripts: list[Transcript], project: str) -> AnalysisResult:
+        transcript_text = render_transcripts(transcripts)
+
+        response = self._client.messages.parse(
+            model=self._model,
+            max_tokens=8000,
+            # Theme-finding is judgement-heavy; let Claude think. Effort defaults
+            # to "high", and parse() owns output_config.format, so we don't set
+            # output_config here to avoid clobbering the response schema.
+            thinking={"type": "adaptive"},
+            system=[
+                {
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    # Stable instructions cache with the transcript below.
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            # The transcript is large and reused across re-runs of
+                            # the same project — cache it so iterating is cheap.
+                            "type": "text",
+                            "text": f"Project: {project}\n\nTranscripts:\n\n{transcript_text}",
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {
+                            "type": "text",
+                            "text": "Identify the common themes across these sessions and select supporting quotes.",
+                        },
+                    ],
+                }
+            ],
+            output_format=AnalysisResult,
+        )
+        result = response.parsed_output
+        if result is None:
+            raise RuntimeError(
+                f"Claude did not return a parseable analysis (stop_reason={response.stop_reason})."
+            )
+        return result
+
+
+class KeywordAnalyzer:
+    """No-key fallback: cluster utterances by a few seed keywords.
+
+    Deliberately simple — it exists so the pipeline produces *something* without
+    an API key, not to rival Claude's judgement.
+    """
+
+    name = "keyword"
+
+    _SEED_THEMES = {
+        "Price and value": ["price", "pay", "expensive", "cost", "worth"],
+        "Trust and credibility": ["trust", "brand", "claims", "reviews", "believe"],
+        "Ease of use": ["setup", "complicated", "manual", "easy", "time"],
+        "Design and appeal": ["design", "packaging", "premium", "gorgeous", "counter"],
+    }
+
+    def analyze(self, transcripts: list[Transcript], project: str) -> AnalysisResult:
+        all_utterances = [u for t in transcripts for u in t.utterances]
+        themes: list[ThemeDraft] = []
+
+        for title, keywords in self._SEED_THEMES.items():
+            matches = [
+                u
+                for u in all_utterances
+                if any(k in u.text.lower() for k in keywords)
+            ]
+            if len(matches) < 3:
+                continue
+            quotes = [
+                QuoteSelection(
+                    utterance_id=u.uid,
+                    quote=u.text,
+                    rationale="Mentions the theme keyword.",
+                )
+                for u in matches[:6]
+            ]
+            themes.append(
+                ThemeDraft(
+                    title=title,
+                    summary=f"Respondents repeatedly raised {title.lower()} across sessions.",
+                    quotes=quotes,
+                )
+            )
+
+        return AnalysisResult(themes=themes)
+
+
+def build_analyzer(settings: Settings):
+    """Claude when a key is present, keyword fallback otherwise."""
+    if settings.has_anthropic:
+        return ClaudeAnalyzer(settings.anthropic_api_key, settings.analysis_model)
+    return KeywordAnalyzer()
+
+
+# --------------------------------------------------------------------------- #
+# Resolution: join the analysis back to real timecodes
+# --------------------------------------------------------------------------- #
+
+
+def resolve_report(
+    analysis: AnalysisResult,
+    transcripts: list[Transcript],
+    project: str,
+) -> ThemeReport:
+    """Turn Claude's id-referenced themes into timecoded `ResolvedTheme`s.
+
+    Quotes whose utterance id can't be found (e.g. a model slip) are dropped, and
+    themes left with no resolvable quotes are dropped too.
+    """
+    index: dict[str, tuple[Transcript, "Utterance"]] = {}  # noqa: F821
+    for t in transcripts:
+        for u in t.utterances:
+            index[u.uid] = (t, u)
+
+    resolved_themes: list[ResolvedTheme] = []
+    for theme in analysis.themes:
+        resolved_quotes: list[ResolvedQuote] = []
+        for sel in theme.quotes:
+            found = index.get(sel.utterance_id)
+            if found is None:
+                continue
+            transcript, utterance = found
+            resolved_quotes.append(
+                ResolvedQuote(
+                    session_id=transcript.session_id,
+                    source_video=transcript.source_video,
+                    speaker=utterance.speaker,
+                    # Trust the utterance text for what actually gets cut.
+                    quote=utterance.text,
+                    rationale=sel.rationale,
+                    start_ms=utterance.start_ms,
+                    end_ms=utterance.end_ms,
+                )
+            )
+        if resolved_quotes:
+            resolved_themes.append(
+                ResolvedTheme(
+                    title=theme.title,
+                    summary=theme.summary,
+                    quotes=resolved_quotes,
+                )
+            )
+
+    return ThemeReport(project=project, themes=resolved_themes)

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GroupThink</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2129; --line:#2b3642; --text:#e6edf3; --muted:#8b98a5; --accent:#4c8bf5; --accent2:#2ea043; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:18px 28px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:20px; margin:0; }
+  header .tag { font-size:12px; color:var(--muted); }
+  .badge { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .badge.live { color:var(--accent2); border-color:var(--accent2); }
+  main { max-width:980px; margin:0 auto; padding:28px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:20px; }
+  h2 { font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 14px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px; padding:9px 16px; font-size:14px; cursor:pointer; }
+  button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
+  button.ghost { background:transparent; border:0; color:var(--muted); padding:4px 8px; }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=text], textarea { width:100%; background:#0d1117; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:8px 10px; font-size:14px; font-family:inherit; }
+  textarea { resize:vertical; min-height:46px; }
+  label.file { display:inline-block; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .theme { border:1px solid var(--line); border-radius:9px; padding:16px; margin-bottom:14px; }
+  .theme .title-input { font-size:17px; font-weight:600; margin-bottom:8px; }
+  .quote { border-left:3px solid var(--accent); padding:8px 12px; margin:8px 0; background:#0d1117; border-radius:0 6px 6px 0; }
+  .quote .meta { font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; justify-content:space-between; }
+  .muted { color:var(--muted); font-size:13px; }
+  a.dl { color:var(--accent); text-decoration:none; margin-right:14px; font-size:14px; }
+  video { width:100%; border-radius:8px; margin-top:12px; background:#000; }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--muted); border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GroupThink</h1>
+  <span class="tag">focus-group footage &rarr; themed highlight reel</span>
+  <span style="flex:1"></span>
+  <span id="badge-asr" class="badge">transcriber</span>
+  <span id="badge-analyzer" class="badge">analyzer</span>
+</header>
+
+<main>
+  <div class="panel" id="intake">
+    <h2>1 &middot; Sessions</h2>
+    <p class="muted">Upload your session videos, or try a no-key demo with synthetic footage.</p>
+    <div class="row" style="margin-top:12px">
+      <input type="text" id="project-name" placeholder="Project name" value="Focus Group Study" style="max-width:280px" />
+      <label class="file secondary" style="padding:0">
+        <button class="secondary" type="button" onclick="document.getElementById('files').click()">Choose videos</button>
+      </label>
+      <input type="file" id="files" accept="video/*" multiple class="hidden" />
+      <span id="file-count" class="muted"></span>
+      <button id="analyze-btn" onclick="analyze()">Analyze</button>
+      <button class="secondary" onclick="runDemo()">Try the demo</button>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="review">
+    <h2>2 &middot; Review themes</h2>
+    <p class="muted">Edit titles and summaries, drop quotes you don't want, then render. Timecodes come straight from the transcript.</p>
+    <div id="themes"></div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="renderReport()">Render reel &amp; timelines</button>
+      <span id="render-status" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="output">
+    <h2>3 &middot; Deliverables</h2>
+    <div id="downloads"></div>
+    <video id="preview" controls class="hidden"></video>
+  </div>
+</main>
+
+<script>
+let projectId = null;
+let report = null;
+
+async function loadStatus() {
+  const s = await (await fetch('/api/status')).json();
+  const asr = document.getElementById('badge-asr');
+  asr.textContent = s.diarization ? 'diarized (' + s.transcriber + ')' : 'mock transcriber';
+  asr.className = 'badge' + (s.diarization ? ' live' : '');
+  const an = document.getElementById('badge-analyzer');
+  an.textContent = s.claude ? 'Claude (' + s.analyzer + ')' : 'keyword fallback';
+  an.className = 'badge' + (s.claude ? ' live' : '');
+}
+
+document.getElementById('files').addEventListener('change', (e) => {
+  const n = e.target.files.length;
+  document.getElementById('file-count').textContent = n ? n + ' file(s) selected' : '';
+});
+
+function busy(btn, on, label) {
+  btn.disabled = on;
+  btn.dataset.label = btn.dataset.label || btn.textContent;
+  btn.innerHTML = on ? '<span class="spinner"></span> ' + (label || 'Working') : btn.dataset.label;
+}
+
+async function analyze() {
+  const files = document.getElementById('files').files;
+  if (!files.length) { alert('Choose at least one video, or use the demo.'); return; }
+  const btn = document.getElementById('analyze-btn');
+  busy(btn, true, 'Analyzing');
+  const fd = new FormData();
+  fd.append('project', document.getElementById('project-name').value);
+  for (const f of files) fd.append('files', f);
+  try {
+    const res = await fetch('/api/projects', { method:'POST', body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    projectId = data.project_id; report = data.report;
+    renderThemes();
+  } catch (e) { alert('Analysis failed: ' + e.message); }
+  finally { busy(btn, false); }
+}
+
+async function runDemo() {
+  const btn = event.target;
+  busy(btn, true, 'Building demo');
+  try {
+    const res = await fetch('/api/demo', { method:'POST' });
+    const data = await res.json();
+    projectId = data.project_id; report = data.report;
+    renderThemes();
+  } catch (e) { alert('Demo failed: ' + e.message); }
+  finally { busy(btn, false); }
+}
+
+function renderThemes() {
+  const wrap = document.getElementById('themes');
+  wrap.innerHTML = '';
+  report.themes.forEach((theme, ti) => {
+    const div = document.createElement('div');
+    div.className = 'theme';
+    div.innerHTML = `
+      <input class="title-input" type="text" value="${escapeHtml(theme.title)}"
+             onchange="report.themes[${ti}].title=this.value" />
+      <textarea onchange="report.themes[${ti}].summary=this.value">${escapeHtml(theme.summary)}</textarea>
+      <div>${theme.quotes.map((q, qi) => quoteHtml(ti, qi, q)).join('')}</div>`;
+    wrap.appendChild(div);
+  });
+  document.getElementById('review').classList.remove('hidden');
+  document.getElementById('output').classList.add('hidden');
+}
+
+function quoteHtml(ti, qi, q) {
+  const t = (ms) => (ms/1000).toFixed(1) + 's';
+  return `<div class="quote">
+    <div class="meta">
+      <span>${escapeHtml(q.speaker)} &middot; ${escapeHtml(q.source_video.split('/').pop())} &middot; ${t(q.start_ms)}&ndash;${t(q.end_ms)}</span>
+      <button class="ghost" onclick="dropQuote(${ti},${qi})">remove</button>
+    </div>
+    <div>&ldquo;${escapeHtml(q.quote)}&rdquo;</div>
+  </div>`;
+}
+
+function dropQuote(ti, qi) {
+  report.themes[ti].quotes.splice(qi, 1);
+  if (!report.themes[ti].quotes.length) report.themes.splice(ti, 1);
+  renderThemes();
+}
+
+async function renderReport() {
+  const status = document.getElementById('render-status');
+  status.innerHTML = '<span class="spinner"></span> saving edits &amp; rendering (this is the slow step)';
+  await fetch(`/api/projects/${projectId}/report`, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(report)
+  });
+  try {
+    const res = await fetch(`/api/projects/${projectId}/render`, { method:'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showDownloads(data.artifacts);
+    status.textContent = '';
+  } catch (e) { status.textContent = 'Render failed: ' + e.message; }
+}
+
+function showDownloads(artifacts) {
+  const labels = { mp4:'Highlight reel (MP4)', edl:'Timeline (EDL)', fcpxml:'Timeline (FCPXML)', report_json:'Report (JSON)' };
+  const dl = document.getElementById('downloads');
+  dl.innerHTML = Object.entries(artifacts)
+    .map(([k, url]) => `<a class="dl" href="${url}" download>&darr; ${labels[k] || k}</a>`).join('');
+  const v = document.getElementById('preview');
+  if (artifacts.mp4) { v.src = artifacts.mp4; v.classList.remove('hidden'); }
+  document.getElementById('output').classList.remove('hidden');
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadStatus();
+</script>
+</body>
+</html>

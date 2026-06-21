@@ -1,0 +1,17 @@
+# Runtime artifacts
+workspace/
+*.mp4
+*.wav
+*.edl
+*.fcpxml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets
+.env
