@@ -91,6 +91,7 @@
     <div id="themes"></div>
     <div class="row" style="margin-top:8px">
       <button onclick="renderReport()">Render reel &amp; timelines</button>
+      <button class="secondary" onclick="saveDoc()">Save to Word doc</button>
       <span id="render-status" class="muted"></span>
     </div>
   </div>
@@ -250,6 +251,21 @@ function dropQuote(ti, qi) {
   report.themes[ti].quotes.splice(qi, 1);
   if (!report.themes[ti].quotes.length) report.themes.splice(ti, 1);
   renderThemes();
+}
+
+async function saveDoc() {
+  const btn = event.target;
+  busy(btn, true, 'Saving');
+  try {
+    // Persist any edits, then download the Word document of the current report.
+    await fetch(`/api/projects/${projectId}/report`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(report)
+    });
+    const a = document.createElement('a');
+    a.href = `/api/projects/${projectId}/document`;
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { alert('Could not save the document: ' + e.message); }
+  finally { busy(btn, false); }
 }
 
 async function renderReport() {

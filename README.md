@@ -99,6 +99,9 @@ For each project GroupThink produces:
   an NLE instead of re-finding every clip by hand.
 - **`report.json`** — the structured themes → quotes → timecodes, for review or
   feeding into other tools.
+- **Word document** — "Save to Word doc" in the review step exports the themes,
+  summaries, and quotes (with speaker, source, and timecode) as a `.docx` for
+  sharing. (Falls back to an HTML `.doc` if `python-docx` isn't installed.)
 
 The MP4 is the fastest watchable result; the timelines are the better handoff for
 a polished edit. Rendering is the slow, expensive step, so it only happens after a

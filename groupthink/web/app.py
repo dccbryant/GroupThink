@@ -17,10 +17,11 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from ..analysis import build_analyzer, resolve_report
+from ..assembly.document import build_doc_html, build_docx
 from ..config import Settings, load_settings
 from ..demo import make_demo_videos
 from ..models import ThemeReport
@@ -260,6 +261,27 @@ def update_report(project_id: str, report: ThemeReport) -> dict:
         raise HTTPException(404, "Project not found.")
     _save_report(project_id, report)
     return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/document")
+def document(project_id: str) -> Response:
+    """Download the themes + quotes as a Word document (.docx, or .doc fallback)."""
+    report = _load_report(project_id)
+    safe = "".join(c for c in report.project if c.isalnum() or c in " -_").strip() or "report"
+    try:
+        data = build_docx(report)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe}.docx"'},
+        )
+    except ImportError:
+        # python-docx isn't installed — hand back an HTML doc Word opens cleanly.
+        return Response(
+            content=build_doc_html(report),
+            media_type="application/msword",
+            headers={"Content-Disposition": f'attachment; filename="{safe}.doc"'},
+        )
 
 
 def _render_job(job_id: str, project_id: str) -> None:
