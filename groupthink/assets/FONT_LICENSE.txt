@@ -1,0 +1,9 @@
+GroupThink bundles the DejaVu Sans font (DejaVuSans.ttf) so that title cards
+render consistently on every machine, independent of system fonts or how the
+local ffmpeg build was compiled.
+
+DejaVu Fonts — license (Bitstream Vera derivative)
+--------------------------------------------------
+The DejaVu fonts are a modification of the Bitstream Vera fonts and are released
+under a permissive, free license. Fonts are free to use, embed, and redistribute.
+Full license: https://dejavu-fonts.github.io/License.html

@@ -4,6 +4,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 python-multipart>=0.0.9   # FastAPI file uploads
+pillow>=10.0.0            # renders title-card text reliably on every platform
 
 # Transcription (diarization). Only needed when ASR_PROVIDER=assemblyai.
 assemblyai>=0.34.0

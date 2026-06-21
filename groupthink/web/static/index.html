@@ -287,14 +287,17 @@ async function renderReport() {
     method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(report)
   });
   startJob(`/api/projects/${projectId}/render`, { method:'POST' }, 'Rendering reel & timelines', (result) => {
-    hideProgress(); showDownloads(result.artifacts);
+    hideProgress(); showDownloads(result.artifacts, result.warning);
   });
 }
 
-function showDownloads(artifacts) {
+function showDownloads(artifacts, warning) {
   const labels = { mp4:'Highlight reel (MP4)', edl:'Timeline (EDL)', fcpxml:'Timeline (FCPXML)', report_json:'Report (JSON)' };
   const dl = document.getElementById('downloads');
-  dl.innerHTML = Object.entries(artifacts)
+  const warn = warning
+    ? `<p style="color:#e0a93c; margin:0 0 12px"><strong>Note:</strong> ${escapeHtml(warning)}</p>`
+    : '';
+  dl.innerHTML = warn + Object.entries(artifacts)
     .map(([k, url]) => `<a class="dl" href="${url}" download>&darr; ${labels[k] || k}</a>`).join('');
   const v = document.getElementById('preview');
   if (artifacts.mp4) { v.src = artifacts.mp4; v.classList.remove('hidden'); }

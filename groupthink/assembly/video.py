@@ -85,6 +85,64 @@ def _encode_args(fps: int) -> list[str]:
 
 # Left margin for flush-left titles (at 1920px wide).
 _LEFT_MARGIN = 140
+# Bundled font so titles render the same everywhere, regardless of system fonts
+# or how the local ffmpeg was built.
+_BUNDLED_FONT = Path(__file__).resolve().parent.parent / "assets" / "DejaVuSans.ttf"
+
+
+def _load_pil_font(fontsize: int):
+    """Load a TrueType font for Pillow, preferring the bundled one."""
+    try:
+        from PIL import ImageFont
+    except Exception:
+        return None
+    for path in (str(_BUNDLED_FONT), *_FONT_CANDIDATES):
+        try:
+            return ImageFont.truetype(path, fontsize)
+        except Exception:
+            continue
+    return None
+
+
+def _wrap_lines(draw, text: str, font, max_width: int) -> list[str]:
+    """Greedy word-wrap so long titles fit the frame width."""
+    words = text.split()
+    if not words:
+        return [text]
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        trial = f"{current} {word}".strip()
+        if not current or draw.textlength(trial, font=font) <= max_width:
+            current = trial
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _make_title_png(text: str, png_path: str, fontsize: int) -> bool:
+    """Draw the title onto a 1920x1080 black PNG. Returns True on success."""
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return False
+    font = _load_pil_font(fontsize)
+    if font is None:
+        return False
+    img = Image.new("RGB", (_W, _H), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    lines = _wrap_lines(draw, text, font, _W - 2 * _LEFT_MARGIN)
+    ascent, descent = font.getmetrics()
+    line_height = ascent + descent + 18
+    y = (_H - line_height * len(lines)) // 2
+    for line in lines:
+        draw.text((_LEFT_MARGIN, y), line, fill=(255, 255, 255), font=font)
+        y += line_height
+    img.save(png_path)
+    return True
 
 
 def render_title_card(
@@ -93,58 +151,74 @@ def render_title_card(
     settings: Settings,
     seconds: float | None = None,
     fontsize: int = 72,
-) -> str:
+) -> tuple[str, bool]:
     """Render a title card: white sans-serif text, flush left, vertically
-    centered, on black, fading in and out, with silent audio.
+    centered, on black, fading in/out, with silent audio.
 
-    Tries the chosen font, then ffmpeg's default font, and finally a plain card
-    with no text — so a font problem on one machine can never kill a render.
+    Text is drawn with Pillow into an image first (works on every machine), then
+    laid over black by ffmpeg. If Pillow or a font is unavailable we fall back to
+    ffmpeg's drawtext, and finally to a plain card with no text.
+
+    Returns (path, text_drawn) so the caller can warn if a card ended up blank.
     """
     seconds = settings.title_card_seconds if seconds is None else seconds
     fps = settings.render_fps
-    font = _find_font()
+    fade = f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(0.0, seconds - 0.5):.2f}:d=0.5"
+    silent = ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+    color_in = ["-f", "lavfi", "-i", f"color=c=black:s={_W}x{_H}:d={seconds}:r={fps}"]
 
-    # Use drawtext's textfile= to sidestep all the filter-escaping pain.
+    # 1) Preferred: Pillow renders the text; ffmpeg just encodes the image.
+    png_path = out_path + ".png"
+    if _make_title_png(text, png_path, fontsize):
+        try:
+            subprocess.run(
+                [
+                    settings.ffmpeg_bin, "-y", "-loop", "1", "-i", png_path, *silent,
+                    "-t", str(seconds), "-vf", f"{fade},format=yuv420p",
+                    *_encode_args(fps), out_path,
+                ],
+                capture_output=True, check=True,
+            )
+            return out_path, True
+        except subprocess.CalledProcessError:
+            pass
+        finally:
+            Path(png_path).unlink(missing_ok=True)
+
+    # 2) Fallback: ffmpeg drawtext (needs a freetype-enabled build + a font).
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
         tf.write(text)
         textfile = tf.name
-
     base_draw = (
         f"drawtext=textfile='{textfile}':fontcolor=white:fontsize={fontsize}:"
         f"x={_LEFT_MARGIN}:y=(h-text_h)/2:line_spacing=18"
     )
-    # Quick fade in at the start and out at the end (against black).
-    fade_in = "fade=t=in:st=0:d=0.4"
-    fade_out = f"fade=t=out:st={max(0.0, seconds - 0.5):.2f}:d=0.5"
-    fade = f"{fade_in},{fade_out}"
-
-    inputs = [
-        "-f", "lavfi", "-i", f"color=c=black:s={_W}x{_H}:d={seconds}:r={fps}",
-        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-    ]
-
-    # Progressive fallbacks: best font -> default font -> no text at all.
-    video_filters: list[str] = []
+    attempts = []
+    font = _find_font()
     if font:
-        video_filters.append(f"{base_draw}:fontfile='{font}',{fade}")
-    video_filters.append(f"{base_draw},{fade}")  # ffmpeg/fontconfig default font
-    video_filters.append(fade)                    # plain black card, no text
-
+        attempts.append(f"{base_draw}:fontfile='{font}',{fade}")
+    attempts.append(f"{base_draw},{fade}")
     try:
-        last_error: subprocess.CalledProcessError | None = None
-        for vf in video_filters:
-            cmd = [
-                settings.ffmpeg_bin, "-y", *inputs,
-                "-vf", vf, "-t", str(seconds), *_encode_args(fps), out_path,
-            ]
+        for vf in attempts:
             try:
-                subprocess.run(cmd, capture_output=True, check=True)
-                return out_path
-            except subprocess.CalledProcessError as exc:
-                last_error = exc
-        raise last_error  # type: ignore[misc]
+                subprocess.run(
+                    [settings.ffmpeg_bin, "-y", *color_in, *silent, "-vf", vf,
+                     "-t", str(seconds), *_encode_args(fps), out_path],
+                    capture_output=True, check=True,
+                )
+                return out_path, True
+            except subprocess.CalledProcessError:
+                continue
     finally:
         Path(textfile).unlink(missing_ok=True)
+
+    # 3) Last resort: a plain black card so the render still completes.
+    subprocess.run(
+        [settings.ffmpeg_bin, "-y", *color_in, *silent, "-vf", fade,
+         "-t", str(seconds), *_encode_args(fps), out_path],
+        capture_output=True, check=True,
+    )
+    return out_path, False
 
 
 def render_clip(
@@ -176,8 +250,13 @@ def render_report(
     out_dir: str,
     settings: Settings,
     on_progress: Optional[Callable[[str, float], None]] = None,
+    warnings: Optional[list] = None,
 ) -> str:
-    """Render the full themed reel. Returns the path to the final MP4."""
+    """Render the full themed reel. Returns the path to the final MP4.
+
+    If any title card ends up blank (no usable text rendering), a message is
+    appended to ``warnings`` so the caller can surface it.
+    """
     out_dir_path = Path(out_dir)
     segments_dir = out_dir_path / "segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
@@ -185,6 +264,7 @@ def render_report(
     # One opening card + one card per theme + one per quote, plus a final concat.
     total_steps = 1 + sum(1 + len(t.quotes) for t in report.themes) + 1
     done = 0
+    all_text_ok = True
 
     def step(message: str) -> None:
         nonlocal done
@@ -199,14 +279,16 @@ def render_report(
     # Opening card with the research video's title, set a little larger.
     step(f"Rendering opening title: {report.display_title}")
     opening = segments_dir / f"{seq:03d}_opening.mp4"
-    render_title_card(report.display_title, str(opening), settings, fontsize=84)
+    _, ok = render_title_card(report.display_title, str(opening), settings, fontsize=84)
+    all_text_ok = all_text_ok and ok
     segment_paths.append(opening)
     seq += 1
 
     for theme in report.themes:
         step(f"Rendering title card: {theme.title}")
         card = segments_dir / f"{seq:03d}_title.mp4"
-        render_title_card(theme.title, str(card), settings)
+        _, ok = render_title_card(theme.title, str(card), settings)
+        all_text_ok = all_text_ok and ok
         segment_paths.append(card)
         seq += 1
 
@@ -219,6 +301,13 @@ def render_report(
 
     if not segment_paths:
         raise RuntimeError("Nothing to render — the report has no resolvable quotes.")
+
+    if not all_text_ok and warnings is not None:
+        warnings.append(
+            "Title cards rendered without text — no usable font was available. "
+            "Install Pillow (pip install pillow) to fix this; the title text will "
+            "then appear on the next render."
+        )
 
     step("Stitching the reel together…")
 
