@@ -36,6 +36,9 @@ class Settings:
     # Where uploads and renders are written.
     work_dir: str = os.getenv("GROUPTHINK_WORK_DIR", "./workspace")
 
+    # Offer in-app compression when a selected folder exceeds this many GB.
+    compress_threshold_gb: float = float(os.getenv("COMPRESS_THRESHOLD_GB", "20"))
+
     @property
     def has_anthropic(self) -> bool:
         return bool(self.anthropic_api_key)

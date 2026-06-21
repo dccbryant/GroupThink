@@ -10,6 +10,8 @@ Run with:  uvicorn groupthink.web.app:app --reload
 from __future__ import annotations
 
 import dataclasses
+import json
+import os
 import shutil
 import threading
 import uuid
@@ -22,7 +24,7 @@ from pydantic import BaseModel
 
 from ..analysis import build_analyzer, resolve_report
 from ..assembly.document import build_doc_html, build_docx
-from ..compress import list_videos
+from ..compress import compress_folder, folder_total_bytes, human_size, list_videos
 from ..config import Settings, load_settings
 from ..demo import make_demo_videos
 from ..models import ThemeReport
@@ -36,9 +38,38 @@ PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
 # In-memory index of projects -> their source video paths. Reports live on disk.
 _PROJECTS: dict[str, dict] = {}
 
-# Keys pasted into the UI live here, in memory only, for this server process.
-# They override the environment but are never written to disk or echoed back.
+# Keys pasted into the UI live here. They override the environment, and are
+# persisted to a user-only file so they survive restarts (see below). They are
+# never echoed back to the client.
 _RUNTIME_KEYS: dict[str, Optional[str]] = {"anthropic": None, "assemblyai": None}
+
+# Persist keys to the user's home so they don't need re-pasting each restart.
+_KEYS_FILE = Path.home() / ".groupthink" / "keys.json"
+
+
+def _load_persisted_keys() -> None:
+    try:
+        data = json.loads(_KEYS_FILE.read_text())
+    except (OSError, ValueError):
+        return
+    for name in ("anthropic", "assemblyai"):
+        value = data.get(name)
+        if value:
+            _RUNTIME_KEYS[name] = value
+
+
+def _persist_keys() -> None:
+    """Write current keys to a user-only (0600) file."""
+    try:
+        _KEYS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _KEYS_FILE.write_text(json.dumps({k: v for k, v in _RUNTIME_KEYS.items() if v}))
+        os.chmod(_KEYS_FILE, 0o600)
+        os.chmod(_KEYS_FILE.parent, 0o700)
+    except OSError:
+        pass
+
+
+_load_persisted_keys()
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -181,6 +212,8 @@ def status() -> dict:
         # already set without ever revealing the value).
         "anthropic_from_env": bool(load_settings().anthropic_api_key),
         "assemblyai_from_env": bool(load_settings().assemblyai_api_key),
+        "keys_saved": _KEYS_FILE.exists(),
+        "compress_threshold_gb": s.compress_threshold_gb,
     }
 
 
@@ -191,16 +224,84 @@ class KeyUpdate(BaseModel):
 
 @app.post("/api/settings")
 def update_keys(update: KeyUpdate) -> dict:
-    """Store pasted API keys in memory for this server process.
+    """Store pasted API keys and persist them for next time.
 
-    A blank field is ignored (so it won't wipe a key already set via the
-    environment). Keys are never persisted to disk or returned to the client.
+    A blank field is ignored (so it won't wipe a key already set). Keys are
+    written to a user-only file in your home directory and never returned to the
+    client.
     """
     if update.anthropic_api_key and update.anthropic_api_key.strip():
         _RUNTIME_KEYS["anthropic"] = update.anthropic_api_key.strip()
     if update.assemblyai_api_key and update.assemblyai_api_key.strip():
         _RUNTIME_KEYS["assemblyai"] = update.assemblyai_api_key.strip()
+    _persist_keys()
     return status()
+
+
+@app.post("/api/settings/forget")
+def forget_keys() -> dict:
+    """Clear saved keys (reverts to environment variables, if any)."""
+    _RUNTIME_KEYS["anthropic"] = None
+    _RUNTIME_KEYS["assemblyai"] = None
+    try:
+        _KEYS_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return status()
+
+
+class FolderRequest(BaseModel):
+    folder: str
+
+
+@app.post("/api/inspect")
+def inspect_folder(req: FolderRequest) -> dict:
+    """Report how many videos a local folder holds and their total size."""
+    folder = Path(req.folder.strip()).expanduser()
+    if not folder.is_dir():
+        raise HTTPException(400, f"Folder not found on this computer: {folder}")
+    videos = list_videos(str(folder))
+    total = folder_total_bytes(str(folder))
+    threshold_gb = current_settings().compress_threshold_gb
+    return {
+        "count": len(videos),
+        "total_bytes": total,
+        "total_human": human_size(total),
+        "over_threshold": total > threshold_gb * (1024 ** 3),
+        "threshold_gb": threshold_gb,
+    }
+
+
+class CompressRequest(BaseModel):
+    folder: str
+    height: int = 720
+    crf: int = 28
+
+
+def _compress_job(job_id: str, in_dir: str, out_dir: str, height: int, crf: int) -> None:
+    settings = current_settings()
+    proxies = compress_folder(
+        in_dir, out_dir, height, crf, settings.ffmpeg_bin,
+        on_progress=_progress(job_id, 0.0, 1.0),
+    )
+    _update_job(
+        job_id, status="done", step=f"Compressed {len(proxies)} video(s).",
+        progress=1.0, result={"folder": out_dir, "count": len(proxies)},
+    )
+
+
+@app.post("/api/compress")
+def compress_endpoint(req: CompressRequest) -> dict:
+    """Compress a local folder of videos into smaller proxies (background job)."""
+    folder = Path(req.folder.strip()).expanduser()
+    if not folder.is_dir():
+        raise HTTPException(400, f"Folder not found on this computer: {folder}")
+    if not list_videos(str(folder)):
+        raise HTTPException(400, f"No video files found in {folder}")
+    out_dir = str(folder.parent / (folder.name + "_groupthink_proxies"))
+    job_id = _new_job()
+    _spawn(job_id, lambda: _compress_job(job_id, str(folder), out_dir, req.height, req.crf))
+    return {"job_id": job_id, "out_dir": out_dir}
 
 
 # --------------------------------------------------------------------------- #

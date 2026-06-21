@@ -48,13 +48,18 @@ def compress_video(
     height: int = 720,
     crf: int = 28,
     ffmpeg_bin: str = "ffmpeg",
+    skip_existing: bool = False,
 ) -> str:
     """Transcode `src` to a smaller H.264 proxy at `dst`.
 
     Scales down to at most `height` pixels tall (never upscales), keeping aspect
     ratio with even dimensions. `crf` controls quality/size (lower = better/
     bigger; 23 is visually transparent, 28 is a good small-file default).
+
+    With `skip_existing`, a non-empty `dst` is left as-is (lets a re-run resume).
     """
+    if skip_existing and Path(dst).exists() and Path(dst).stat().st_size > 0:
+        return dst
     Path(dst).parent.mkdir(parents=True, exist_ok=True)
     vf = f"scale=-2:'min(ih,{height})'"
     subprocess.run(
@@ -70,6 +75,38 @@ def compress_video(
         check=True,
     )
     return dst
+
+
+def folder_total_bytes(folder: str) -> int:
+    return sum(Path(p).stat().st_size for p in list_videos(folder))
+
+
+def compress_folder(
+    in_dir: str,
+    out_dir: str,
+    height: int = 720,
+    crf: int = 28,
+    ffmpeg_bin: str = "ffmpeg",
+    skip_existing: bool = True,
+    on_progress=None,
+) -> list[str]:
+    """Compress every video in `in_dir` into `out_dir`. Returns the proxy paths.
+
+    `on_progress(message, fraction)` is called before each file if provided.
+    """
+    out = Path(out_dir).expanduser()
+    out.mkdir(parents=True, exist_ok=True)
+    videos = list_videos(in_dir)
+    proxies: list[str] = []
+    n = len(videos)
+    for i, src in enumerate(videos):
+        name = Path(src).name
+        if on_progress:
+            on_progress(f"Compressing {i + 1} of {n}: {name}…", i / max(n, 1))
+        dst = str(out / (Path(src).stem + ".mp4"))
+        compress_video(src, dst, height, crf, ffmpeg_bin, skip_existing=skip_existing)
+        proxies.append(dst)
+    return proxies
 
 
 def main(argv: list[str] | None = None) -> int:
