@@ -15,6 +15,7 @@ import glob
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Callable, Optional
 
 from ..config import Settings
 from ..models import ThemeReport
@@ -110,21 +111,39 @@ def render_clip(
     return out_path
 
 
-def render_report(report: ThemeReport, out_dir: str, settings: Settings) -> str:
+def render_report(
+    report: ThemeReport,
+    out_dir: str,
+    settings: Settings,
+    on_progress: Optional[Callable[[str, float], None]] = None,
+) -> str:
     """Render the full themed reel. Returns the path to the final MP4."""
     out_dir_path = Path(out_dir)
     segments_dir = out_dir_path / "segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
 
+    # One segment per title card + one per quote, plus a final concat step.
+    total_steps = sum(1 + len(t.quotes) for t in report.themes) + 1
+    done = 0
+
+    def step(message: str) -> None:
+        nonlocal done
+        if on_progress:
+            # Reserve the first 5% for the timeline writing in pipeline.render.
+            on_progress(message, 0.05 + 0.95 * (done / total_steps))
+        done += 1
+
     segment_paths: list[Path] = []
     seq = 0
     for theme in report.themes:
+        step(f"Rendering title card: {theme.title}")
         card = segments_dir / f"{seq:03d}_title.mp4"
         render_title_card(theme.title, str(card), settings)
         segment_paths.append(card)
         seq += 1
 
-        for quote in theme.quotes:
+        for q_index, quote in enumerate(theme.quotes, start=1):
+            step(f"Cutting clip {q_index} of {len(theme.quotes)} for “{theme.title}”…")
             clip = segments_dir / f"{seq:03d}_clip.mp4"
             render_clip(quote.source_video, quote.start_ms, quote.end_ms, str(clip), settings)
             segment_paths.append(clip)
@@ -132,6 +151,8 @@ def render_report(report: ThemeReport, out_dir: str, settings: Settings) -> str:
 
     if not segment_paths:
         raise RuntimeError("Nothing to render — the report has no resolvable quotes.")
+
+    step("Stitching the reel together…")
 
     # Concatenate via the concat demuxer. Segments share an encode profile, so a
     # stream copy is safe and fast.

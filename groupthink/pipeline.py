@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable, Optional
 
 from .analysis import build_analyzer, resolve_report
 from .assembly import timeline, video
@@ -18,19 +19,26 @@ from .config import Settings, load_settings
 from .models import ThemeReport, Transcript
 from .transcription import build_transcriber
 
+# A progress reporter: (human-readable message, fraction complete 0.0-1.0).
+ProgressFn = Callable[[str, float], None]
+
 
 def transcribe_sessions(
     videos: list[str],
     settings: Settings,
     work_dir: str,
+    on_progress: Optional[ProgressFn] = None,
 ) -> list[Transcript]:
     """Stages 1-2: extract audio and transcribe each video into a Transcript."""
     transcriber = build_transcriber(settings)
     audio_dir = Path(work_dir) / "audio"
     transcripts: list[Transcript] = []
+    n = len(videos)
 
     for i, video_path in enumerate(videos, start=1):
         session_id = f"S{i}"
+        if on_progress:
+            on_progress(f"Transcribing session {i} of {n} ({Path(video_path).name})…", (i - 1) / n)
         # Mock transcription doesn't need real audio; skip ffmpeg if the source
         # isn't a readable media file (keeps unit tests and demos fast).
         if transcriber.name == "mock":
@@ -66,11 +74,15 @@ def render(
     report: ThemeReport,
     out_dir: str,
     settings: Settings | None = None,
+    on_progress: Optional[ProgressFn] = None,
 ) -> dict[str, str]:
     """Stage 4: render MP4 + editable timelines. Returns paths by artifact name."""
     settings = settings or load_settings()
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    if on_progress:
+        on_progress("Writing editable timelines (EDL, FCPXML)…", 0.02)
 
     report_json = out / "report.json"
     report_json.write_text(json.dumps(report.model_dump(), indent=2))
@@ -81,7 +93,8 @@ def render(
     fcpxml_path = out / "report.fcpxml"
     fcpxml_path.write_text(timeline.build_fcpxml(report, settings.render_fps))
 
-    mp4_path = video.render_report(report, str(out), settings)
+    # Rendering video is the slow part — it owns the bulk of the progress bar.
+    mp4_path = video.render_report(report, str(out), settings, on_progress=on_progress)
 
     return {
         "mp4": mp4_path,
