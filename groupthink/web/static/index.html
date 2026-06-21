@@ -52,11 +52,12 @@
 <main>
   <div class="panel" id="keys">
     <h2>API keys</h2>
-    <p class="muted">Paste keys to switch on the real backends. Leave a field blank to keep what's already set via the environment. Keys are held in server memory for this session only &mdash; never written to disk.</p>
+    <p class="muted">Paste keys to switch on the real backends. Saved keys are remembered across restarts (stored in a private file in your home folder, <code>~/.groupthink/keys.json</code>). Leave a field blank to keep what's already saved.</p>
     <div class="row" style="margin-top:12px">
       <input type="password" id="key-anthropic" placeholder="Anthropic API key (sk-ant-&hellip;)" style="flex:1;min-width:240px" autocomplete="off" />
       <input type="password" id="key-assembly" placeholder="AssemblyAI API key" style="flex:1;min-width:240px" autocomplete="off" />
       <button onclick="saveKeys()">Save keys</button>
+      <button class="ghost" onclick="forgetKeys()">Forget saved keys</button>
       <span id="keys-status" class="muted"></span>
     </div>
   </div>
@@ -80,6 +81,16 @@
       Huge files filling your disk? Shrink them first, then point at the smaller copies:<br>
       <code style="color:#9fb6d4">python -m groupthink.compress --in &lt;folder&gt; --out &lt;folder&gt;_small</code>
     </p>
+  </div>
+
+  <div class="panel hidden" id="bigfolder">
+    <h2>Large folder</h2>
+    <p id="bigfolder-msg" class="muted"></p>
+    <div class="row">
+      <button id="bf-compress">Compress to proxies &amp; analyze</button>
+      <button class="secondary" id="bf-asis">Analyze as-is</button>
+      <button class="ghost" id="bf-cancel">Cancel</button>
+    </div>
   </div>
 
   <div class="panel hidden" id="progress">
@@ -126,6 +137,10 @@ async function loadStatus() {
     s.claude ? 'Anthropic key active ✓ (paste to replace)' : 'Anthropic API key (sk-ant-…)';
   document.getElementById('key-assembly').placeholder =
     s.diarization ? 'AssemblyAI key active ✓ (paste to replace)' : 'AssemblyAI API key';
+  if (s.keys_saved && !document.getElementById('keys-status').textContent) {
+    document.getElementById('keys-status').textContent = 'Keys saved on this computer ✓';
+  }
+  window.THRESHOLD_GB = s.compress_threshold_gb || 20;
 }
 
 async function saveKeys() {
@@ -144,10 +159,17 @@ async function saveKeys() {
     // Clear the inputs so the keys don't linger in the DOM.
     document.getElementById('key-anthropic').value = '';
     document.getElementById('key-assembly').value = '';
-    document.getElementById('keys-status').textContent = 'Saved ✓';
+    document.getElementById('keys-status').textContent = 'Saved ✓ (remembered next time)';
     await loadStatus();
   } catch (e) { alert('Could not save keys: ' + e.message); }
   finally { busy(btn, false); }
+}
+
+async function forgetKeys() {
+  if (!confirm('Forget the saved API keys on this computer?')) return;
+  await fetch('/api/settings/forget', { method:'POST' });
+  document.getElementById('keys-status').textContent = 'Saved keys removed.';
+  await loadStatus();
 }
 
 document.getElementById('files').addEventListener('change', (e) => {
@@ -214,13 +236,64 @@ async function analyze() {
   if (!files.length && !folder) {
     alert('Choose videos to upload, paste a folder path, or use the demo.'); return;
   }
+
+  // Folder mode: check total size and offer in-app compression if it's large.
+  if (!files.length && folder) {
+    let info;
+    try {
+      const res = await fetch('/api/inspect', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ folder })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      info = await res.json();
+    } catch (e) { alert('Could not read that folder: ' + e.message); return; }
+    if (info.over_threshold) { showBigFolderPrompt(folder, info); return; }
+    startAnalyze(folder);
+    return;
+  }
+
+  // Upload mode: warn (can't compress before upload) but allow proceeding.
+  let total = 0;
+  for (const f of files) total += f.size;
+  const limit = (window.THRESHOLD_GB || 20) * 1e9;
+  if (total > limit) {
+    const gb = (total / 1e9).toFixed(1);
+    if (!confirm(`These files total ${gb} GB. Uploading large files is slow and copies them to disk. ` +
+      `For big footage, paste a folder path instead — the app reads it in place and can compress it first. Upload anyway?`)) return;
+  }
+  startAnalyze('');
+}
+
+// Build the analysis request from whatever is selected (folder or uploads).
+function startAnalyze(folder) {
   const fd = new FormData();
   fd.append('project', document.getElementById('project-name').value);
   fd.append('title', document.getElementById('video-title').value);
-  fd.append('folder', folder);
+  fd.append('folder', folder || '');
+  const files = document.getElementById('files').files;
   for (const f of files) fd.append('files', f);
   startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
     report = result.report; hideProgress(); renderThemes();
+  });
+}
+
+function showBigFolderPrompt(folder, info) {
+  const panel = document.getElementById('bigfolder');
+  document.getElementById('bigfolder-msg').textContent =
+    `That folder is ${info.total_human} across ${info.count} video(s) — over the ${info.threshold_gb} GB threshold. ` +
+    `Compressing to 720p proxies first saves a lot of space and speeds everything up. Your originals are left untouched.`;
+  document.getElementById('bf-compress').onclick = () => { panel.classList.add('hidden'); startCompress(folder); };
+  document.getElementById('bf-asis').onclick    = () => { panel.classList.add('hidden'); startAnalyze(folder); };
+  document.getElementById('bf-cancel').onclick  = () => panel.classList.add('hidden');
+  panel.classList.remove('hidden');
+}
+
+// Compress the folder to proxies, then analyze the compressed copies.
+function startCompress(folder) {
+  startJob('/api/compress', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ folder })
+  }, 'Compressing videos', (result) => {
+    startAnalyze(result.folder);  // chains into a fresh analysis job
   });
 }
 

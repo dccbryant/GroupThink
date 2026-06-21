@@ -81,7 +81,14 @@ python -m groupthink.compress --in ~/sessions --out ~/sessions_small
 **Analyze a folder in place — no upload, no second copy.** In the web app, paste
 a **folder path** instead of choosing files; GroupThink reads the videos where
 they already live (uploads copy each file into the project, doubling disk use).
-Combine the two: compress to a folder, then point the app at that folder.
+If the folder's videos total more than ~20 GB (configurable via
+`COMPRESS_THRESHOLD_GB`), the app offers to **compress them to proxies first,
+right in the browser** — then analyzes the smaller copies. Originals are left
+untouched.
+
+**API keys are remembered.** Keys pasted into the web app are saved to a
+user-only file (`~/.groupthink/keys.json`) and reloaded on restart, so you don't
+re-paste them each time. "Forget saved keys" clears them.
 
 ## Production use
 
