@@ -12,6 +12,7 @@ expensive step, which is why the pipeline only does it after a report is approve
 from __future__ import annotations
 
 import glob
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,16 +28,50 @@ _VF = (
     f"pad={_W}:{_H}:(ow-iw)/2:(oh-ih)/2,setsar=1"
 )
 
+# Symbol / emoji / decorative fonts that look like ".ttf" but can't render plain
+# text — picking one of these makes ffmpeg's drawtext fail (exit 8).
+_BAD_FONT_HINTS = (
+    "symbol", "wingding", "webding", "dingbat", "emoji", "bodoni ornaments",
+    "apple color", "notocoloremoji", "applesymbols", "lastresort",
+)
+
+# Known-good text fonts by platform, in priority order.
+_FONT_CANDIDATES = (
+    # macOS
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/Supplemental/Verdana.ttf",
+    "/System/Library/Fonts/Geneva.ttf",
+    # Linux
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    # Windows
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+)
+
 
 def _find_font() -> str | None:
+    """Pick a font that can actually render text.
+
+    Prefer a curated list of known-good text fonts; only fall back to a glob if
+    none are present, and skip symbol/emoji fonts in that fallback.
+    """
+    for path in _FONT_CANDIDATES:
+        if os.path.exists(path):
+            return path
     for pattern in (
-        "/usr/share/fonts/**/DejaVuSans.ttf",
+        "/usr/share/fonts/**/DejaVu*Sans.ttf",
         "/usr/share/fonts/**/*.ttf",
-        "/System/Library/Fonts/**/*.ttf",
+        "/System/Library/Fonts/**/*.tt[cf]",
+        "/Library/Fonts/**/*.tt[cf]",
+        "C:/Windows/Fonts/*.ttf",
     ):
-        hits = glob.glob(pattern, recursive=True)
-        if hits:
-            return hits[0]
+        for hit in sorted(glob.glob(pattern, recursive=True)):
+            if not any(bad in os.path.basename(hit).lower() for bad in _BAD_FONT_HINTS):
+                return hit
     return None
 
 
@@ -54,7 +89,11 @@ def render_title_card(
     settings: Settings,
     seconds: float | None = None,
 ) -> str:
-    """Render a centered-title card on a dark background with silent audio."""
+    """Render a centered-title card on a dark background with silent audio.
+
+    Tries the chosen font, then ffmpeg's default font, and finally a plain card
+    with no text — so a font problem on one machine can never kill a render.
+    """
     seconds = settings.title_card_seconds if seconds is None else seconds
     fps = settings.render_fps
     font = _find_font()
@@ -64,27 +103,38 @@ def render_title_card(
         tf.write(text)
         textfile = tf.name
 
-    draw = (
+    base_draw = (
         f"drawtext=textfile='{textfile}':fontcolor=white:fontsize=72:"
         f"x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=16"
     )
-    if font:
-        draw += f":fontfile='{font}'"
-
-    cmd = [
-        settings.ffmpeg_bin, "-y",
+    inputs = [
         "-f", "lavfi", "-i", f"color=c=0x111418:s={_W}x{_H}:d={seconds}:r={fps}",
-        "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=48000",
-        "-vf", draw,
-        "-t", str(seconds),
-        *_encode_args(fps),
-        out_path,
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
     ]
+
+    # Progressive fallbacks: best font -> default font -> no text at all.
+    video_filters: list[str | None] = []
+    if font:
+        video_filters.append(base_draw + f":fontfile='{font}'")
+    video_filters.append(base_draw)  # let ffmpeg/fontconfig choose a default font
+    video_filters.append(None)       # plain card, no drawtext
+
     try:
-        subprocess.run(cmd, capture_output=True, check=True)
+        last_error: subprocess.CalledProcessError | None = None
+        for vf in video_filters:
+            cmd = [settings.ffmpeg_bin, "-y", *inputs]
+            if vf is not None:
+                cmd += ["-vf", vf]
+            cmd += ["-t", str(seconds), *_encode_args(fps), out_path]
+            try:
+                subprocess.run(cmd, capture_output=True, check=True)
+                return out_path
+            except subprocess.CalledProcessError as exc:
+                last_error = exc
+        # All attempts failed (very unlikely — the last has no font at all).
+        raise last_error  # type: ignore[misc]
     finally:
         Path(textfile).unlink(missing_ok=True)
-    return out_path
 
 
 def render_clip(
