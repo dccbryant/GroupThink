@@ -21,7 +21,7 @@ def build_transcriber(settings: Settings) -> Transcriber:
     if provider == "assemblyai" and settings.has_assemblyai:
         from .assemblyai import AssemblyAITranscriber
 
-        return AssemblyAITranscriber(settings.assemblyai_api_key)
+        return AssemblyAITranscriber(settings.assemblyai_api_key, settings.asr_language)
     return MockTranscriber()
 
 

@@ -94,6 +94,7 @@
   <div class="panel hidden" id="review">
     <h2>2 &middot; Review themes</h2>
     <p class="muted">Edit titles and summaries, drop quotes you don't want, then render. Timecodes come straight from the transcript.</p>
+    <p id="analyze-warning" class="hidden" style="color:#e0a93c; margin:0 0 14px"></p>
     <div id="themes"></div>
     <div class="row" style="margin-top:8px">
       <button onclick="renderReport()">Render reel &amp; timelines</button>
@@ -231,13 +232,19 @@ async function analyze() {
   fd.append('recursive', document.getElementById('recursive').checked ? 'true' : 'false');
   for (const f of files) fd.append('files', f);
   startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
-    report = result.report; hideProgress(); renderThemes();
+    report = result.report; hideProgress(); renderThemes(); showAnalyzeWarning(result.warning);
   });
+}
+
+function showAnalyzeWarning(msg) {
+  const el = document.getElementById('analyze-warning');
+  if (msg) { el.textContent = 'Note: ' + msg; el.classList.remove('hidden'); }
+  else { el.textContent = ''; el.classList.add('hidden'); }
 }
 
 async function runDemo() {
   startJob('/api/demo', { method:'POST' }, 'Building demo & analyzing', (result) => {
-    report = result.report; hideProgress(); renderThemes();
+    report = result.report; hideProgress(); renderThemes(); showAnalyzeWarning(result.warning);
   });
 }
 

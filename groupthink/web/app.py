@@ -179,9 +179,11 @@ def _analyze_job(
         _update_job(job_id, step="Generating demo footage…", progress=0.05)
         videos = make_demo_videos(str(out_dir / "sources"), settings)
 
+    warnings: list[str] = []
     # Transcription is the slow part for real footage -> give it 5%..70%.
     transcripts = transcribe_sessions(
-        videos, settings, str(out_dir), on_progress=_progress(job_id, 0.05, 0.65)
+        videos, settings, str(out_dir),
+        on_progress=_progress(job_id, 0.05, 0.65), warnings=warnings,
     )
 
     using = "Claude" if settings.has_anthropic else "keyword fallback"
@@ -194,13 +196,10 @@ def _analyze_job(
 
     _PROJECTS[project_id] = {"name": project_name, "videos": videos}
     _save_report(project_id, report)
-    _update_job(
-        job_id,
-        status="done",
-        step="Analysis complete.",
-        progress=1.0,
-        result={"project_id": project_id, "report": report.model_dump()},
-    )
+    result: dict = {"project_id": project_id, "report": report.model_dump()}
+    if warnings:
+        result["warning"] = " ".join(warnings)
+    _update_job(job_id, status="done", step="Analysis complete.", progress=1.0, result=result)
 
 
 # --------------------------------------------------------------------------- #

@@ -159,3 +159,6 @@ python -m pytest
 - Analysis and rendering run as background jobs with a live progress bar; errors
   (e.g. a bad API key) surface in the UI instead of as a generic 500. Jobs are
   tracked in memory, so they don't survive a server restart.
+- Videos with no spoken audio (silent clips, b-roll, music-only) are skipped with
+  a note rather than failing the whole batch. Set `ASR_LANGUAGE` (e.g. `en`) to
+  skip per-file language auto-detection if all your sessions share one language.

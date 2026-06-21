@@ -14,15 +14,21 @@ from .base import make_uid
 class AssemblyAITranscriber:
     name = "assemblyai"
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, language: str | None = None) -> None:
         import assemblyai as aai
 
         aai.settings.api_key = api_key
         self._aai = aai
+        self._language = language
 
     def transcribe(self, audio_path: str, session_id: str, source_video: str) -> Transcript:
         aai = self._aai
-        config = aai.TranscriptionConfig(speaker_labels=True)
+        if self._language:
+            # Fixed language — skips auto language detection (which errors on
+            # silent clips).
+            config = aai.TranscriptionConfig(speaker_labels=True, language_code=self._language)
+        else:
+            config = aai.TranscriptionConfig(speaker_labels=True)
         result = aai.Transcriber().transcribe(audio_path, config=config)
 
         if result.status == aai.TranscriptStatus.error:

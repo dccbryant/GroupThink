@@ -28,28 +28,47 @@ def transcribe_sessions(
     settings: Settings,
     work_dir: str,
     on_progress: Optional[ProgressFn] = None,
+    warnings: Optional[list] = None,
 ) -> list[Transcript]:
-    """Stages 1-2: extract audio and transcribe each video into a Transcript."""
+    """Stages 1-2: extract audio and transcribe each video into a Transcript.
+
+    A single bad file (no spoken audio, no audio track, unreadable) is skipped
+    rather than failing the whole batch; skipped filenames are reported via
+    `warnings`. Raises only if *every* video fails.
+    """
     transcriber = build_transcriber(settings)
     audio_dir = Path(work_dir) / "audio"
     transcripts: list[Transcript] = []
+    skipped: list[str] = []
     n = len(videos)
 
     for i, video_path in enumerate(videos, start=1):
         session_id = f"S{i}"
         if on_progress:
             on_progress(f"Transcribing session {i} of {n} ({Path(video_path).name})…", (i - 1) / n)
-        # Mock transcription doesn't need real audio; skip ffmpeg if the source
-        # isn't a readable media file (keeps unit tests and demos fast).
-        if transcriber.name == "mock":
-            transcript = transcriber.transcribe(video_path, session_id, video_path)
-        else:
-            audio_path = extract_audio(video_path, str(audio_dir), settings.ffmpeg_bin)
-            transcript = transcriber.transcribe(audio_path, session_id, video_path)
-            if not transcript.duration_ms:
-                transcript.duration_ms = probe_duration_ms(video_path, settings.ffprobe_bin)
-        transcripts.append(transcript)
+        try:
+            if transcriber.name == "mock":
+                transcript = transcriber.transcribe(video_path, session_id, video_path)
+            else:
+                audio_path = extract_audio(video_path, str(audio_dir), settings.ffmpeg_bin)
+                transcript = transcriber.transcribe(audio_path, session_id, video_path)
+                if not transcript.duration_ms:
+                    transcript.duration_ms = probe_duration_ms(video_path, settings.ffprobe_bin)
+            transcripts.append(transcript)
+        except Exception:  # noqa: BLE001 — one bad file shouldn't sink the batch
+            skipped.append(Path(video_path).name)
 
+    if skipped and warnings is not None:
+        shown = ", ".join(skipped[:8]) + (" …" if len(skipped) > 8 else "")
+        warnings.append(
+            f"Skipped {len(skipped)} of {n} video(s) with no usable speech "
+            f"(silent, music-only, or no audio track): {shown}"
+        )
+    if not transcripts:
+        raise RuntimeError(
+            "None of the videos could be transcribed — they appear to have no spoken "
+            "audio. Check that the files contain speech and try again."
+        )
     return transcripts
 
 
