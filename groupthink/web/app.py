@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from ..analysis import build_analyzer, resolve_report
 from ..assembly.document import build_doc_html, build_docx
+from ..compress import list_videos
 from ..config import Settings, load_settings
 from ..demo import make_demo_videos
 from ..models import ThemeReport
@@ -221,22 +222,36 @@ def get_job(job_id: str) -> dict:
 async def create_project(
     project: str = Form("Focus Group Study"),
     title: str = Form(""),
+    folder: str = Form(""),
     files: Optional[List[UploadFile]] = None,  # noqa: UP006,UP007 — runtime-evaluated by FastAPI; keep 3.9-safe
 ) -> dict:
-    """Upload session videos and kick off analysis. Returns a job id to poll."""
-    if not files:
-        raise HTTPException(400, "Upload at least one session video.")
+    """Start analysis from uploaded files OR a local folder path.
 
+    Folder mode reads the videos in place (no upload, no second copy on disk) —
+    the better choice for large footage. Returns a job id to poll.
+    """
     project_id = uuid.uuid4().hex[:12]
-    sources_dir = _project_dir(project_id) / "sources"
-    sources_dir.mkdir(parents=True, exist_ok=True)
-
     video_paths: list[str] = []
-    for upload in files:
-        dest = sources_dir / Path(upload.filename or "session.mp4").name
-        with dest.open("wb") as fh:
-            shutil.copyfileobj(upload.file, fh)
-        video_paths.append(str(dest))
+
+    if files:
+        # Upload mode: copy each file into the project's sources directory.
+        sources_dir = _project_dir(project_id) / "sources"
+        sources_dir.mkdir(parents=True, exist_ok=True)
+        for upload in files:
+            dest = sources_dir / Path(upload.filename or "session.mp4").name
+            with dest.open("wb") as fh:
+                shutil.copyfileobj(upload.file, fh)
+            video_paths.append(str(dest))
+    elif folder.strip():
+        # Local-folder mode: use the videos where they already live.
+        folder_path = Path(folder.strip()).expanduser()
+        if not folder_path.is_dir():
+            raise HTTPException(400, f"Folder not found on this computer: {folder_path}")
+        video_paths = list_videos(str(folder_path))
+        if not video_paths:
+            raise HTTPException(400, f"No video files found in {folder_path}")
+    else:
+        raise HTTPException(400, "Choose videos to upload, or paste a folder path.")
 
     job_id = _new_job()
     _spawn(job_id, lambda: _analyze_job(job_id, project_id, project, video_paths, title=title))

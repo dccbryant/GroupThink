@@ -65,6 +65,24 @@ uvicorn groupthink.web.app:app --reload
 # open http://localhost:8000 and click "Try the demo"
 ```
 
+## Large footage (many big videos)
+
+Research sessions are often 20 files of several GB each. Two features keep that
+manageable:
+
+**Shrink the videos first.** Focus-group footage is talking heads, so a 720p
+proxy looks fine in the reel and is typically 5–10× smaller:
+
+```bash
+python -m groupthink.compress --in ~/sessions --out ~/sessions_small
+# options: --height 720  --crf 28   (lower crf = better quality, bigger files)
+```
+
+**Analyze a folder in place — no upload, no second copy.** In the web app, paste
+a **folder path** instead of choosing files; GroupThink reads the videos where
+they already live (uploads copy each file into the project, doubling disk use).
+Combine the two: compress to a folder, then point the app at that folder.
+
 ## Production use
 
 Set keys (see `.env.example`) to switch on the real backends:
