@@ -46,6 +46,17 @@
 </header>
 
 <main>
+  <div class="panel" id="keys">
+    <h2>API keys</h2>
+    <p class="muted">Paste keys to switch on the real backends. Leave a field blank to keep what's already set via the environment. Keys are held in server memory for this session only &mdash; never written to disk.</p>
+    <div class="row" style="margin-top:12px">
+      <input type="password" id="key-anthropic" placeholder="Anthropic API key (sk-ant-&hellip;)" style="flex:1;min-width:240px" autocomplete="off" />
+      <input type="password" id="key-assembly" placeholder="AssemblyAI API key" style="flex:1;min-width:240px" autocomplete="off" />
+      <button onclick="saveKeys()">Save keys</button>
+      <span id="keys-status" class="muted"></span>
+    </div>
+  </div>
+
   <div class="panel" id="intake">
     <h2>1 &middot; Sessions</h2>
     <p class="muted">Upload your session videos, or try a no-key demo with synthetic footage.</p>
@@ -90,6 +101,33 @@ async function loadStatus() {
   const an = document.getElementById('badge-analyzer');
   an.textContent = s.claude ? 'Claude (' + s.analyzer + ')' : 'keyword fallback';
   an.className = 'badge' + (s.claude ? ' live' : '');
+  // Hint which keys are already active without revealing them.
+  document.getElementById('key-anthropic').placeholder =
+    s.claude ? 'Anthropic key active ✓ (paste to replace)' : 'Anthropic API key (sk-ant-…)';
+  document.getElementById('key-assembly').placeholder =
+    s.diarization ? 'AssemblyAI key active ✓ (paste to replace)' : 'AssemblyAI API key';
+}
+
+async function saveKeys() {
+  const btn = event.target;
+  const body = {
+    anthropic_api_key: document.getElementById('key-anthropic').value,
+    assemblyai_api_key: document.getElementById('key-assembly').value,
+  };
+  if (!body.anthropic_api_key && !body.assemblyai_api_key) { alert('Enter at least one key.'); return; }
+  busy(btn, true, 'Saving');
+  try {
+    const res = await fetch('/api/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    // Clear the inputs so the keys don't linger in the DOM.
+    document.getElementById('key-anthropic').value = '';
+    document.getElementById('key-assembly').value = '';
+    document.getElementById('keys-status').textContent = 'Saved ✓';
+    await loadStatus();
+  } catch (e) { alert('Could not save keys: ' + e.message); }
+  finally { busy(btn, false); }
 }
 
 document.getElementById('files').addEventListener('change', (e) => {
