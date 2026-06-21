@@ -24,8 +24,8 @@ from pydantic import BaseModel
 
 from ..analysis import build_analyzer, resolve_report
 from ..assembly.document import build_doc_html, build_docx
-from ..compress import compress_folder, folder_total_bytes, human_size, list_videos
 from ..config import Settings, load_settings
+from ..sources import list_videos
 from ..demo import make_demo_videos
 from ..models import ThemeReport
 from ..pipeline import render, transcribe_sessions
@@ -226,7 +226,6 @@ def status() -> dict:
         "anthropic_from_env": bool(load_settings().anthropic_api_key),
         "assemblyai_from_env": bool(load_settings().assemblyai_api_key),
         "keys_saved": _KEYS_FILE.exists(),
-        "compress_threshold_gb": s.compress_threshold_gb,
     }
 
 
@@ -263,60 +262,6 @@ def forget_keys() -> dict:
     return status()
 
 
-class FolderRequest(BaseModel):
-    folder: str
-
-
-@app.post("/api/inspect")
-def inspect_folder(req: FolderRequest) -> dict:
-    """Report how many videos a local folder holds and their total size."""
-    folder = Path(_clean_folder_path(req.folder)).expanduser()
-    if not folder.is_dir():
-        raise HTTPException(400, f"Folder not found on this computer: {folder}")
-    videos = list_videos(str(folder))
-    total = folder_total_bytes(str(folder))
-    threshold_gb = current_settings().compress_threshold_gb
-    return {
-        "count": len(videos),
-        "total_bytes": total,
-        "total_human": human_size(total),
-        "over_threshold": total > threshold_gb * (1024 ** 3),
-        "threshold_gb": threshold_gb,
-    }
-
-
-class CompressRequest(BaseModel):
-    folder: str
-    height: int = 720
-    crf: int = 28
-
-
-def _compress_job(job_id: str, in_dir: str, out_dir: str, height: int, crf: int) -> None:
-    settings = current_settings()
-    proxies = compress_folder(
-        in_dir, out_dir, height, crf, settings.ffmpeg_bin,
-        on_progress=_progress(job_id, 0.0, 1.0),
-    )
-    _update_job(
-        job_id, status="done", step=f"Compressed {len(proxies)} video(s).",
-        progress=1.0, result={"folder": out_dir, "count": len(proxies)},
-    )
-
-
-@app.post("/api/compress")
-def compress_endpoint(req: CompressRequest) -> dict:
-    """Compress a local folder of videos into smaller proxies (background job)."""
-    folder = Path(_clean_folder_path(req.folder)).expanduser()
-    if not folder.is_dir():
-        raise HTTPException(400, f"Folder not found on this computer: {folder}")
-    if not list_videos(str(folder)):
-        raise HTTPException(400, f"No video files found in {folder}")
-    out_dir = str(folder.parent / (folder.name + "_groupthink_proxies"))
-    job_id = _new_job()
-    _spawn(job_id, lambda: _compress_job(job_id, str(folder), out_dir, req.height, req.crf))
-    return {"job_id": job_id, "out_dir": out_dir}
-
-
 # --------------------------------------------------------------------------- #
 # Project lifecycle
 # --------------------------------------------------------------------------- #
@@ -337,12 +282,14 @@ async def create_project(
     project: str = Form("Focus Group Study"),
     title: str = Form(""),
     folder: str = Form(""),
+    recursive: str = Form(""),
     files: Optional[List[UploadFile]] = None,  # noqa: UP006,UP007 — runtime-evaluated by FastAPI; keep 3.9-safe
 ) -> dict:
     """Start analysis from uploaded files OR a local folder path.
 
     Folder mode reads the videos in place (no upload, no second copy on disk) —
-    the better choice for large footage. Returns a job id to poll.
+    the better choice for large footage. With `recursive`, subfolders are
+    searched too. Returns a job id to poll.
     """
     project_id = uuid.uuid4().hex[:12]
     video_paths: list[str] = []
@@ -361,9 +308,11 @@ async def create_project(
         folder_path = Path(_clean_folder_path(folder)).expanduser()
         if not folder_path.is_dir():
             raise HTTPException(400, f"Folder not found on this computer: {folder_path}")
-        video_paths = list_videos(str(folder_path))
+        recurse = recursive.strip().lower() in ("1", "true", "on", "yes")
+        video_paths = list_videos(str(folder_path), recursive=recurse)
         if not video_paths:
-            raise HTTPException(400, f"No video files found in {folder_path}")
+            where = "folder or its subfolders" if recurse else "folder"
+            raise HTTPException(400, f"No video files found in that {where}: {folder_path}")
     else:
         raise HTTPException(400, "Choose videos to upload, or paste a folder path.")
 

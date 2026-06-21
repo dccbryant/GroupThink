@@ -67,33 +67,17 @@ uvicorn groupthink.web.app:app --reload
 
 ## Large footage (many big videos)
 
-Research sessions are often 20 files of several GB each. Two features keep that
+Research sessions are often 20 files of several GB each. Two things keep that
 manageable:
-
-**You often don't need to compress at all.** With folder mode (below), nothing
-is uploaded or copied, analysis only reads the audio (fast), and rendering only
-cuts the short quote clips — so pointing at the original footage is usually the
-quickest path. Compression mainly helps when *uploading*, or to make smaller
-archived copies.
-
-**When you do compress, it's hardware-accelerated.** Focus-group footage is
-talking heads, so a 720p proxy looks fine in the reel and is typically 5–10×
-smaller. On macOS it uses Apple's VideoToolbox (and NVENC on capable
-Linux/Windows boxes), falling back to software x264 — much faster than software
-encoding:
-
-```bash
-python -m groupthink.compress --in ~/sessions --out ~/sessions_small
-# options: --height 720  --crf 28 (software quality)  --bitrate 2500k (hardware)
-```
 
 **Analyze a folder in place — no upload, no second copy.** In the web app, paste
 a **folder path** instead of choosing files; GroupThink reads the videos where
 they already live (uploads copy each file into the project, doubling disk use).
-If the folder's videos total more than ~20 GB (configurable via
-`COMPRESS_THRESHOLD_GB`), the app offers to **compress them to proxies first,
-right in the browser** — then analyzes the smaller copies. Originals are left
-untouched.
+Nothing is uploaded, analysis only reads the audio, and rendering only cuts the
+short quote clips — so pointing at the original footage is the quickest path,
+even for tens of GB. Tick **"Include videos in subfolders"** to search nested
+folders too. Works great with Google Drive for desktop — paste the synced
+folder's path (make the files "available offline" first).
 
 **API keys are remembered.** Keys pasted into the web app are saved to a
 user-only file (`~/.groupthink/keys.json`) and reloaded on restart, so you don't
