@@ -70,12 +70,21 @@ uvicorn groupthink.web.app:app --reload
 Research sessions are often 20 files of several GB each. Two features keep that
 manageable:
 
-**Shrink the videos first.** Focus-group footage is talking heads, so a 720p
-proxy looks fine in the reel and is typically 5–10× smaller:
+**You often don't need to compress at all.** With folder mode (below), nothing
+is uploaded or copied, analysis only reads the audio (fast), and rendering only
+cuts the short quote clips — so pointing at the original footage is usually the
+quickest path. Compression mainly helps when *uploading*, or to make smaller
+archived copies.
+
+**When you do compress, it's hardware-accelerated.** Focus-group footage is
+talking heads, so a 720p proxy looks fine in the reel and is typically 5–10×
+smaller. On macOS it uses Apple's VideoToolbox (and NVENC on capable
+Linux/Windows boxes), falling back to software x264 — much faster than software
+encoding:
 
 ```bash
 python -m groupthink.compress --in ~/sessions --out ~/sessions_small
-# options: --height 720  --crf 28   (lower crf = better quality, bigger files)
+# options: --height 720  --crf 28 (software quality)  --bitrate 2500k (hardware)
 ```
 
 **Analyze a folder in place — no upload, no second copy.** In the web app, paste
