@@ -50,6 +50,8 @@ GroupThink ships an **offline mode**: a mock transcriber and a keyword-based
 analyzer let you run the entire pipeline — including a real MP4 render — with no
 keys and no network.
 
+Requires Python 3.9+ and `ffmpeg` on your PATH.
+
 ```bash
 pip install -r requirements.txt          # ffmpeg must also be on PATH
 

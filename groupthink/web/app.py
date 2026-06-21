@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import uuid
 from pathlib import Path
+from typing import List, Optional
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
@@ -86,7 +87,7 @@ def status() -> dict:
 @app.post("/api/projects")
 async def create_project(
     project: str = Form("Focus Group Study"),
-    files: list[UploadFile] | None = None,
+    files: Optional[List[UploadFile]] = None,  # noqa: UP006,UP007 — runtime-evaluated by FastAPI; keep 3.9-safe
 ) -> dict:
     """Upload session videos and run analysis. Returns the reviewable report."""
     if not files:
