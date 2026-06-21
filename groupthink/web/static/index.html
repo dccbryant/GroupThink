@@ -64,8 +64,9 @@
   <div class="panel" id="intake">
     <h2>1 &middot; Sessions</h2>
     <p class="muted">Upload your session videos, or try a no-key demo with synthetic footage.</p>
-    <div class="row" style="margin-top:12px">
-      <input type="text" id="project-name" placeholder="Project name" value="Focus Group Study" style="max-width:280px" />
+    <input type="text" id="video-title" placeholder="Video title — shown on the opening card (e.g. “Snack Study — Key Themes”)" style="width:100%; margin:12px 0" />
+    <div class="row">
+      <input type="text" id="project-name" placeholder="Project name (internal)" value="Focus Group Study" style="max-width:240px" />
       <label class="file secondary" style="padding:0">
         <button class="secondary" type="button" onclick="document.getElementById('files').click()">Choose videos</button>
       </label>
@@ -207,6 +208,7 @@ async function analyze() {
   if (!files.length) { alert('Choose at least one video, or use the demo.'); return; }
   const fd = new FormData();
   fd.append('project', document.getElementById('project-name').value);
+  fd.append('title', document.getElementById('video-title').value);
   for (const f of files) fd.append('files', f);
   startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
     report = result.report; hideProgress(); renderThemes();
@@ -222,6 +224,17 @@ async function runDemo() {
 function renderThemes() {
   const wrap = document.getElementById('themes');
   wrap.innerHTML = '';
+
+  // Editable opening title card (plays first in the reel).
+  const opener = document.createElement('div');
+  opener.className = 'theme';
+  opener.style.borderStyle = 'dashed';
+  opener.innerHTML = `
+    <label class="muted" style="font-size:12px; display:block; margin-bottom:6px">Opening title card</label>
+    <input class="title-input" type="text" value="${escapeHtml(report.title || report.project)}"
+           onchange="report.title=this.value" />`;
+  wrap.appendChild(opener);
+
   report.themes.forEach((theme, ti) => {
     const div = document.createElement('div');
     div.className = 'theme';

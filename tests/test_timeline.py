@@ -28,11 +28,18 @@ def _report():
     )
 
 
+def test_edl_has_opening_title_card():
+    edl = timeline.build_edl(_report(), fps=30, title_card_ms=3000)
+    # First card is the opening title (project name when no explicit title set).
+    assert "* TITLE CARD: Test Study" in edl
+    assert edl.index("* TITLE CARD: Test Study") < edl.index("* TITLE CARD: Price and value")
+
+
 def test_edl_record_timecodes_are_continuous():
     edl = timeline.build_edl(_report(), fps=30, title_card_ms=3000)
     assert "TITLE: Test Study" in edl
-    # Title card (3s) then two clips (7s, 6s) => record out should reach 16s.
-    assert "00:00:16:00" in edl  # 3 + 7 + 6 = 16s record-out of last event
+    # Opening card (3s) + theme card (3s) + two clips (7s, 6s) => 19s record-out.
+    assert "00:00:19:00" in edl
     # Source timecodes are preserved from the quotes.
     assert "00:00:42:00 00:00:49:00" in edl
 

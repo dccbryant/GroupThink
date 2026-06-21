@@ -11,6 +11,8 @@ avoid float drift when seeking with ffmpeg.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -141,4 +143,10 @@ class ThemeReport(BaseModel):
     """
 
     project: str
+    # On-screen title for the opening card. Falls back to `project` if unset.
+    title: Optional[str] = None
     themes: list[ResolvedTheme]
+
+    @property
+    def display_title(self) -> str:
+        return (self.title or "").strip() or self.project

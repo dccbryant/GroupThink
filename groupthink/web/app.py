@@ -122,6 +122,7 @@ def _analyze_job(
     project_id: str,
     project_name: str,
     videos: list[str],
+    title: str = "",
     make_demo: bool = False,
 ) -> None:
     """Run transcription + theme analysis, reporting progress into the job."""
@@ -144,6 +145,7 @@ def _analyze_job(
 
     _update_job(job_id, step="Resolving quotes and timecodes…", progress=0.94)
     report = resolve_report(analysis, transcripts, project_name)
+    report.title = title.strip() or None  # on-screen opening-card title
 
     _PROJECTS[project_id] = {"name": project_name, "videos": videos}
     _save_report(project_id, report)
@@ -218,6 +220,7 @@ def get_job(job_id: str) -> dict:
 @app.post("/api/projects")
 async def create_project(
     project: str = Form("Focus Group Study"),
+    title: str = Form(""),
     files: Optional[List[UploadFile]] = None,  # noqa: UP006,UP007 — runtime-evaluated by FastAPI; keep 3.9-safe
 ) -> dict:
     """Upload session videos and kick off analysis. Returns a job id to poll."""
@@ -236,7 +239,7 @@ async def create_project(
         video_paths.append(str(dest))
 
     job_id = _new_job()
-    _spawn(job_id, lambda: _analyze_job(job_id, project_id, project, video_paths))
+    _spawn(job_id, lambda: _analyze_job(job_id, project_id, project, video_paths, title=title))
     return {"job_id": job_id, "project_id": project_id}
 
 

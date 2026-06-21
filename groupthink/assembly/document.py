@@ -32,7 +32,7 @@ def build_docx(report: ThemeReport) -> bytes:
     from docx.shared import Pt, RGBColor
 
     doc = Document()
-    doc.add_heading(report.project, level=0)
+    doc.add_heading(report.display_title, level=0)
     intro = doc.add_paragraph("Focus group themes and supporting quotes")
     intro.runs[0].italic = True
 
@@ -69,7 +69,7 @@ def build_doc_html(report: ThemeReport) -> str:
         "border-left:3px solid #888;padding-left:12px}"
         ".meta{color:#888;font-size:12px;margin:2px 0 12px 12px}"
         "</style></head><body>",
-        f"<h1>{esc(report.project)}</h1>",
+        f"<h1>{esc(report.display_title)}</h1>",
         "<p class='summary'><em>Focus group themes and supporting quotes</em></p>",
     ]
     for i, theme in enumerate(report.themes, start=1):

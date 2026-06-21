@@ -26,7 +26,9 @@ Raw session videos
 4. REVIEW             a human approves/edits the themes and quotes (web UI)
    │
    ▼
-5. ASSEMBLE           ffmpeg cuts each quote, builds title cards, and renders:
+5. ASSEMBLE           ffmpeg opens with the video's title card, then per theme a
+   │                   title card + its quote clips (white sans-serif on black,
+   ▼                   flush-left, fading), and renders:
                         • a rough-cut MP4
                         • an editable timeline (EDL + FCPXML) for Premiere /
                           DaVinci Resolve / Final Cut

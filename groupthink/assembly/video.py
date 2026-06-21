@@ -83,13 +83,19 @@ def _encode_args(fps: int) -> list[str]:
     ]
 
 
+# Left margin for flush-left titles (at 1920px wide).
+_LEFT_MARGIN = 140
+
+
 def render_title_card(
     text: str,
     out_path: str,
     settings: Settings,
     seconds: float | None = None,
+    fontsize: int = 72,
 ) -> str:
-    """Render a centered-title card on a dark background with silent audio.
+    """Render a title card: white sans-serif text, flush left, vertically
+    centered, on black, fading in and out, with silent audio.
 
     Tries the chosen font, then ffmpeg's default font, and finally a plain card
     with no text — so a font problem on one machine can never kill a render.
@@ -104,34 +110,38 @@ def render_title_card(
         textfile = tf.name
 
     base_draw = (
-        f"drawtext=textfile='{textfile}':fontcolor=white:fontsize=72:"
-        f"x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=16"
+        f"drawtext=textfile='{textfile}':fontcolor=white:fontsize={fontsize}:"
+        f"x={_LEFT_MARGIN}:y=(h-text_h)/2:line_spacing=18"
     )
+    # Quick fade in at the start and out at the end (against black).
+    fade_in = "fade=t=in:st=0:d=0.4"
+    fade_out = f"fade=t=out:st={max(0.0, seconds - 0.5):.2f}:d=0.5"
+    fade = f"{fade_in},{fade_out}"
+
     inputs = [
-        "-f", "lavfi", "-i", f"color=c=0x111418:s={_W}x{_H}:d={seconds}:r={fps}",
+        "-f", "lavfi", "-i", f"color=c=black:s={_W}x{_H}:d={seconds}:r={fps}",
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
     ]
 
     # Progressive fallbacks: best font -> default font -> no text at all.
-    video_filters: list[str | None] = []
+    video_filters: list[str] = []
     if font:
-        video_filters.append(base_draw + f":fontfile='{font}'")
-    video_filters.append(base_draw)  # let ffmpeg/fontconfig choose a default font
-    video_filters.append(None)       # plain card, no drawtext
+        video_filters.append(f"{base_draw}:fontfile='{font}',{fade}")
+    video_filters.append(f"{base_draw},{fade}")  # ffmpeg/fontconfig default font
+    video_filters.append(fade)                    # plain black card, no text
 
     try:
         last_error: subprocess.CalledProcessError | None = None
         for vf in video_filters:
-            cmd = [settings.ffmpeg_bin, "-y", *inputs]
-            if vf is not None:
-                cmd += ["-vf", vf]
-            cmd += ["-t", str(seconds), *_encode_args(fps), out_path]
+            cmd = [
+                settings.ffmpeg_bin, "-y", *inputs,
+                "-vf", vf, "-t", str(seconds), *_encode_args(fps), out_path,
+            ]
             try:
                 subprocess.run(cmd, capture_output=True, check=True)
                 return out_path
             except subprocess.CalledProcessError as exc:
                 last_error = exc
-        # All attempts failed (very unlikely — the last has no font at all).
         raise last_error  # type: ignore[misc]
     finally:
         Path(textfile).unlink(missing_ok=True)
@@ -172,8 +182,8 @@ def render_report(
     segments_dir = out_dir_path / "segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
 
-    # One segment per title card + one per quote, plus a final concat step.
-    total_steps = sum(1 + len(t.quotes) for t in report.themes) + 1
+    # One opening card + one card per theme + one per quote, plus a final concat.
+    total_steps = 1 + sum(1 + len(t.quotes) for t in report.themes) + 1
     done = 0
 
     def step(message: str) -> None:
@@ -185,6 +195,14 @@ def render_report(
 
     segment_paths: list[Path] = []
     seq = 0
+
+    # Opening card with the research video's title, set a little larger.
+    step(f"Rendering opening title: {report.display_title}")
+    opening = segments_dir / f"{seq:03d}_opening.mp4"
+    render_title_card(report.display_title, str(opening), settings, fontsize=84)
+    segment_paths.append(opening)
+    seq += 1
+
     for theme in report.themes:
         step(f"Rendering title card: {theme.title}")
         card = segments_dir / f"{seq:03d}_title.mp4"
