@@ -38,16 +38,22 @@ def build_edl(report: ThemeReport, fps: int = 30, title_card_ms: int = TITLE_CAR
     def tc(ms: int) -> str:
         return ms_to_timecode(ms, fps)
 
-    for theme in report.themes:
-        # Title card (black slug, source TC mirrors record TC).
+    def title_event(label: str) -> None:
+        nonlocal event, record_ms
         lines.append(
             f"{event:03d}  BL       V     C        "
             f"{tc(0)} {tc(title_card_ms)} {tc(record_ms)} {tc(record_ms + title_card_ms)}"
         )
-        lines.append(f"* TITLE CARD: {theme.title}")
+        lines.append(f"* TITLE CARD: {label}")
         lines.append("")
         record_ms += title_card_ms
         event += 1
+
+    # Opening card with the research video title.
+    title_event(report.display_title)
+
+    for theme in report.themes:
+        title_event(theme.title)
 
         for quote in theme.quotes:
             duration = quote.duration_ms
@@ -106,16 +112,24 @@ def build_fcpxml(report: ThemeReport, fps: int = 30, title_card_ms: int = TITLE_
         )
 
     # Build the spine.
+    title_dur = _fcp_duration(title_card_ms, fps)
     spine_items = []
     offset_ms = 0
-    for theme in report.themes:
-        title_dur = _fcp_duration(title_card_ms, fps)
+
+    def title_item(label: str) -> None:
+        nonlocal offset_ms
         spine_items.append(
-            f'<title name="{html.escape(theme.title)}" lane="0" '
+            f'<title name="{html.escape(label)}" lane="0" '
             f'offset="{_fcp_duration(offset_ms, fps)}" duration="{title_dur}">'
-            f'<text><text-style>{html.escape(theme.title)}</text-style></text></title>'
+            f'<text><text-style>{html.escape(label)}</text-style></text></title>'
         )
         offset_ms += title_card_ms
+
+    # Opening card with the research video title.
+    title_item(report.display_title)
+
+    for theme in report.themes:
+        title_item(theme.title)
 
         for quote in theme.quotes:
             asset_id = asset_ids[quote.source_video]
