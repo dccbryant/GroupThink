@@ -17,6 +17,10 @@ class Settings:
     # rest of the pipeline and the web UI can be exercised end to end).
     asr_provider: str = os.getenv("ASR_PROVIDER", "assemblyai")
     assemblyai_api_key: str | None = os.getenv("ASSEMBLYAI_API_KEY")
+    # Optional fixed language (e.g. "en"). When unset, the language is
+    # auto-detected per file — which errors on silent clips, so set this if all
+    # your sessions are one known language.
+    asr_language: str | None = os.getenv("ASR_LANGUAGE")
 
     # Claude (theme analysis). claude-opus-4-8 is the strongest model and this
     # is the judgement-heavy step, so it is the default.
