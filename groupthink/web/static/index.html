@@ -75,6 +75,11 @@
       <button id="analyze-btn" onclick="analyze()">Analyze</button>
       <button class="secondary" onclick="runDemo()">Try the demo</button>
     </div>
+    <input type="text" id="folder-path" placeholder="…or paste a folder path on this computer (reads in place — no upload, best for big files)" style="width:100%; margin-top:12px" />
+    <p class="muted" style="margin-top:10px">
+      Huge files filling your disk? Shrink them first, then point at the smaller copies:<br>
+      <code style="color:#9fb6d4">python -m groupthink.compress --in &lt;folder&gt; --out &lt;folder&gt;_small</code>
+    </p>
   </div>
 
   <div class="panel hidden" id="progress">
@@ -205,10 +210,14 @@ async function startJob(url, opts, title, onResult) {
 
 async function analyze() {
   const files = document.getElementById('files').files;
-  if (!files.length) { alert('Choose at least one video, or use the demo.'); return; }
+  const folder = document.getElementById('folder-path').value.trim();
+  if (!files.length && !folder) {
+    alert('Choose videos to upload, paste a folder path, or use the demo.'); return;
+  }
   const fd = new FormData();
   fd.append('project', document.getElementById('project-name').value);
   fd.append('title', document.getElementById('video-title').value);
+  fd.append('folder', folder);
   for (const f of files) fd.append('files', f);
   startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
     report = result.report; hideProgress(); renderThemes();
