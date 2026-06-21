@@ -132,6 +132,19 @@ def current_settings() -> Settings:
     )
 
 
+def _clean_folder_path(raw: str) -> str:
+    """Normalize a pasted folder path.
+
+    macOS "Copy as Pathname" (and dragging into Terminal) can wrap the path in
+    quotes or backslash-escape spaces — strip those so users don't have to.
+    """
+    s = raw.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        s = s[1:-1]
+    s = s.replace("\\ ", " ")  # un-escape shell-style spaces
+    return s.strip()
+
+
 def _project_dir(project_id: str) -> Path:
     return PROJECTS_ROOT / project_id
 
@@ -257,7 +270,7 @@ class FolderRequest(BaseModel):
 @app.post("/api/inspect")
 def inspect_folder(req: FolderRequest) -> dict:
     """Report how many videos a local folder holds and their total size."""
-    folder = Path(req.folder.strip()).expanduser()
+    folder = Path(_clean_folder_path(req.folder)).expanduser()
     if not folder.is_dir():
         raise HTTPException(400, f"Folder not found on this computer: {folder}")
     videos = list_videos(str(folder))
@@ -293,7 +306,7 @@ def _compress_job(job_id: str, in_dir: str, out_dir: str, height: int, crf: int)
 @app.post("/api/compress")
 def compress_endpoint(req: CompressRequest) -> dict:
     """Compress a local folder of videos into smaller proxies (background job)."""
-    folder = Path(req.folder.strip()).expanduser()
+    folder = Path(_clean_folder_path(req.folder)).expanduser()
     if not folder.is_dir():
         raise HTTPException(400, f"Folder not found on this computer: {folder}")
     if not list_videos(str(folder)):
@@ -345,7 +358,7 @@ async def create_project(
             video_paths.append(str(dest))
     elif folder.strip():
         # Local-folder mode: use the videos where they already live.
-        folder_path = Path(folder.strip()).expanduser()
+        folder_path = Path(_clean_folder_path(folder)).expanduser()
         if not folder_path.is_dir():
             raise HTTPException(400, f"Folder not found on this computer: {folder_path}")
         video_paths = list_videos(str(folder_path))
