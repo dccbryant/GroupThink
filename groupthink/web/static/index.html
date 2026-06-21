@@ -33,6 +33,10 @@
   video { width:100%; border-radius:8px; margin-top:12px; background:#000; }
   .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--muted); border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  .bar { height:10px; background:#0d1117; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
+  .bar > i { display:block; height:100%; width:0%; background:var(--accent); transition:width .35s ease; }
+  .bar.error > i { background:#d83c3c; }
+  .pct { font-variant-numeric:tabular-nums; color:var(--muted); font-size:13px; }
   .hidden { display:none; }
 </style>
 </head>
@@ -69,6 +73,15 @@
       <span id="file-count" class="muted"></span>
       <button id="analyze-btn" onclick="analyze()">Analyze</button>
       <button class="secondary" onclick="runDemo()">Try the demo</button>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="progress">
+    <h2 id="progress-title">Working</h2>
+    <div class="bar" id="progress-bar"><i id="progress-fill"></i></div>
+    <div class="row" style="margin-top:10px; justify-content:space-between">
+      <span id="progress-step" class="muted">Starting&hellip;</span>
+      <span id="progress-pct" class="pct">0%</span>
     </div>
   </div>
 
@@ -141,34 +154,68 @@ function busy(btn, on, label) {
   btn.innerHTML = on ? '<span class="spinner"></span> ' + (label || 'Working') : btn.dataset.label;
 }
 
+// --- progress panel ------------------------------------------------------- //
+function showProgress(title) {
+  document.getElementById('progress-title').textContent = title;
+  document.getElementById('progress-bar').classList.remove('error');
+  setProgress(0, 'Starting…');
+  document.getElementById('progress').classList.remove('hidden');
+}
+function setProgress(frac, step) {
+  const pct = Math.round((frac || 0) * 100);
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent = pct + '%';
+  if (step) document.getElementById('progress-step').textContent = step;
+}
+function progressError(msg) {
+  document.getElementById('progress-bar').classList.add('error');
+  document.getElementById('progress-title').textContent = 'Something went wrong';
+  document.getElementById('progress-step').textContent = msg || 'Unknown error';
+}
+function hideProgress() { document.getElementById('progress').classList.add('hidden'); }
+
+// Poll a background job until it finishes, driving the progress bar.
+function pollJob(jobId, onDone) {
+  const tick = async () => {
+    let j;
+    try { j = await (await fetch('/api/jobs/' + jobId)).json(); }
+    catch (e) { progressError('Lost connection to the server.'); return; }
+    setProgress(j.progress, j.step);
+    if (j.status === 'done') { onDone(j.result); return; }
+    if (j.status === 'error') { progressError(j.error); return; }
+    setTimeout(tick, 900);
+  };
+  tick();
+}
+
+async function startJob(url, opts, title, onResult) {
+  showProgress(title);
+  document.getElementById('review').classList.add('hidden');
+  document.getElementById('output').classList.add('hidden');
+  try {
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(await res.text());
+    const { job_id, project_id } = await res.json();
+    if (project_id) projectId = project_id;
+    pollJob(job_id, onResult);
+  } catch (e) { progressError(e.message); }
+}
+
 async function analyze() {
   const files = document.getElementById('files').files;
   if (!files.length) { alert('Choose at least one video, or use the demo.'); return; }
-  const btn = document.getElementById('analyze-btn');
-  busy(btn, true, 'Analyzing');
   const fd = new FormData();
   fd.append('project', document.getElementById('project-name').value);
   for (const f of files) fd.append('files', f);
-  try {
-    const res = await fetch('/api/projects', { method:'POST', body: fd });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    projectId = data.project_id; report = data.report;
-    renderThemes();
-  } catch (e) { alert('Analysis failed: ' + e.message); }
-  finally { busy(btn, false); }
+  startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
+    report = result.report; hideProgress(); renderThemes();
+  });
 }
 
 async function runDemo() {
-  const btn = event.target;
-  busy(btn, true, 'Building demo');
-  try {
-    const res = await fetch('/api/demo', { method:'POST' });
-    const data = await res.json();
-    projectId = data.project_id; report = data.report;
-    renderThemes();
-  } catch (e) { alert('Demo failed: ' + e.message); }
-  finally { busy(btn, false); }
+  startJob('/api/demo', { method:'POST' }, 'Building demo & analyzing', (result) => {
+    report = result.report; hideProgress(); renderThemes();
+  });
 }
 
 function renderThemes() {
@@ -206,18 +253,13 @@ function dropQuote(ti, qi) {
 }
 
 async function renderReport() {
-  const status = document.getElementById('render-status');
-  status.innerHTML = '<span class="spinner"></span> saving edits &amp; rendering (this is the slow step)';
+  // Persist any edits first, then kick off the render job.
   await fetch(`/api/projects/${projectId}/report`, {
     method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(report)
   });
-  try {
-    const res = await fetch(`/api/projects/${projectId}/render`, { method:'POST' });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    showDownloads(data.artifacts);
-    status.textContent = '';
-  } catch (e) { status.textContent = 'Render failed: ' + e.message; }
+  startJob(`/api/projects/${projectId}/render`, { method:'POST' }, 'Rendering reel & timelines', (result) => {
+    hideProgress(); showDownloads(result.artifacts);
+  });
 }
 
 function showDownloads(artifacts) {

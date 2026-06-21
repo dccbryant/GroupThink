@@ -133,5 +133,6 @@ python -m pytest
   timeline exports for a finished edit.
 - Diarization labels speakers as "Speaker A/B/…"; mapping those to named
   respondents is a natural next step.
-- Rendering is currently synchronous in the web app; a job queue would be the
-  next improvement for long footage.
+- Analysis and rendering run as background jobs with a live progress bar; errors
+  (e.g. a bad API key) surface in the UI instead of as a generic 500. Jobs are
+  tracked in memory, so they don't survive a server restart.
