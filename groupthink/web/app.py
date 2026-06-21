@@ -290,20 +290,19 @@ def document(project_id: str) -> Response:
 def _render_job(job_id: str, project_id: str) -> None:
     report = _load_report(project_id)
     out_dir = _project_dir(project_id) / "output"
+    warnings: list[str] = []
     artifacts = render(
-        report, str(out_dir), current_settings(), on_progress=_progress(job_id, 0.0, 1.0)
+        report, str(out_dir), current_settings(),
+        on_progress=_progress(job_id, 0.0, 1.0), warnings=warnings,
     )
-    _update_job(
-        job_id,
-        status="done",
-        step="Render complete.",
-        progress=1.0,
-        result={
-            "artifacts": {
-                name: f"/api/projects/{project_id}/download/{name}" for name in artifacts
-            }
-        },
-    )
+    result: dict = {
+        "artifacts": {
+            name: f"/api/projects/{project_id}/download/{name}" for name in artifacts
+        }
+    }
+    if warnings:
+        result["warning"] = " ".join(warnings)
+    _update_job(job_id, status="done", step="Render complete.", progress=1.0, result=result)
 
 
 @app.post("/api/projects/{project_id}/render")

@@ -75,6 +75,7 @@ def render(
     out_dir: str,
     settings: Settings | None = None,
     on_progress: Optional[ProgressFn] = None,
+    warnings: Optional[list] = None,
 ) -> dict[str, str]:
     """Stage 4: render MP4 + editable timelines. Returns paths by artifact name."""
     settings = settings or load_settings()
@@ -94,7 +95,9 @@ def render(
     fcpxml_path.write_text(timeline.build_fcpxml(report, settings.render_fps))
 
     # Rendering video is the slow part — it owns the bulk of the progress bar.
-    mp4_path = video.render_report(report, str(out), settings, on_progress=on_progress)
+    mp4_path = video.render_report(
+        report, str(out), settings, on_progress=on_progress, warnings=warnings
+    )
 
     return {
         "mp4": mp4_path,
