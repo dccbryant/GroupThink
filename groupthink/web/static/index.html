@@ -80,6 +80,23 @@
     <label class="muted" style="display:block; margin-top:10px; cursor:pointer">
       <input type="checkbox" id="recursive" style="vertical-align:middle" /> Include videos in subfolders
     </label>
+
+    <div style="margin-top:18px">
+      <label class="muted" style="display:block; margin-bottom:6px">Topics to focus on <span style="opacity:.7">(optional)</span> — what themes do you want GroupThink to look for?</label>
+      <textarea id="topics" placeholder="e.g.
+Price sensitivity and value for money
+Trust in the brand
+Ease of setup and first use" style="width:100%; min-height:84px"></textarea>
+      <label class="muted" style="display:block; margin-top:8px; cursor:pointer">
+        <input type="checkbox" id="restrict-topics" style="vertical-align:middle" />
+        Only find themes within these topics <span style="opacity:.7">(otherwise GroupThink also surfaces other themes it finds)</span>
+      </label>
+    </div>
+
+    <div style="margin-top:18px">
+      <label class="muted" style="display:block; margin-bottom:6px">Discussion guide <span style="opacity:.7">(optional)</span> — paste your research guide so the AI has more context</label>
+      <textarea id="discussion-guide" placeholder="Paste the moderator's discussion guide here — the questions and structure used in the sessions…" style="width:100%; min-height:110px"></textarea>
+    </div>
   </div>
 
   <div class="panel hidden" id="progress">
@@ -230,6 +247,9 @@ async function analyze() {
   fd.append('title', document.getElementById('video-title').value);
   fd.append('folder', folder);
   fd.append('recursive', document.getElementById('recursive').checked ? 'true' : 'false');
+  fd.append('topics', document.getElementById('topics').value);
+  fd.append('restrict_topics', document.getElementById('restrict-topics').checked ? 'true' : 'false');
+  fd.append('discussion_guide', document.getElementById('discussion-guide').value);
   for (const f of files) fd.append('files', f);
   startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
     report = result.report; hideProgress(); renderThemes(); showAnalyzeWarning(result.warning);

@@ -16,6 +16,7 @@ from collections import defaultdict
 
 from .config import Settings
 from .models import (
+    AnalysisBrief,
     AnalysisResult,
     QuoteSelection,
     ResolvedQuote,
@@ -62,6 +63,32 @@ def render_transcripts(transcripts: list[Transcript]) -> str:
     return "\n\n".join(blocks)
 
 
+def render_brief(brief: AnalysisBrief | None) -> str:
+    """Render the researcher's guidance (topics, restriction, guide) for the prompt."""
+    if brief is None or brief.is_empty:
+        return ""
+    parts: list[str] = []
+    if brief.discussion_guide.strip():
+        parts.append(
+            "RESEARCH DISCUSSION GUIDE (the questions and structure that framed "
+            "these sessions — use it for context on what was explored):\n"
+            + brief.discussion_guide.strip()
+        )
+    if brief.topics.strip():
+        if brief.restrict_to_topics:
+            parts.append(
+                "TOPICS TO FOCUS ON — the researcher wants themes ONLY within these "
+                "topics. Do not introduce themes unrelated to them:\n" + brief.topics.strip()
+            )
+        else:
+            parts.append(
+                "TOPICS TO PRIORITISE — organise themes around these where the "
+                "sessions support it, AND also surface any other strong themes that "
+                "emerge on their own:\n" + brief.topics.strip()
+            )
+    return "\n\n".join(parts)
+
+
 class ClaudeAnalyzer:
     name = "claude"
 
@@ -71,8 +98,21 @@ class ClaudeAnalyzer:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = model
 
-    def analyze(self, transcripts: list[Transcript], project: str) -> AnalysisResult:
+    def analyze(
+        self,
+        transcripts: list[Transcript],
+        project: str,
+        brief: AnalysisBrief | None = None,
+    ) -> AnalysisResult:
         transcript_text = render_transcripts(transcripts)
+        brief_text = render_brief(brief)
+
+        # The researcher's brief is the volatile part of the prompt; it goes
+        # AFTER the cached transcript so re-runs with tweaked topics still hit
+        # the cache on the (large) transcript prefix.
+        task = "Identify the common themes across these sessions and select supporting quotes."
+        if brief_text:
+            task = brief_text + "\n\n" + task
 
         response = self._client.messages.parse(
             model=self._model,
@@ -100,10 +140,7 @@ class ClaudeAnalyzer:
                             "text": f"Project: {project}\n\nTranscripts:\n\n{transcript_text}",
                             "cache_control": {"type": "ephemeral"},
                         },
-                        {
-                            "type": "text",
-                            "text": "Identify the common themes across these sessions and select supporting quotes.",
-                        },
+                        {"type": "text", "text": task},
                     ],
                 }
             ],
@@ -133,7 +170,12 @@ class KeywordAnalyzer:
         "Design and appeal": ["design", "packaging", "premium", "gorgeous", "counter"],
     }
 
-    def analyze(self, transcripts: list[Transcript], project: str) -> AnalysisResult:
+    def analyze(
+        self,
+        transcripts: list[Transcript],
+        project: str,
+        brief: AnalysisBrief | None = None,  # noqa: ARG002 — fallback ignores guidance
+    ) -> AnalysisResult:
         all_utterances = [u for t in transcripts for u in t.utterances]
         themes: list[ThemeDraft] = []
 

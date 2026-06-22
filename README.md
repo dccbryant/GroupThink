@@ -110,6 +110,19 @@ python -m groupthink.cli --videos s1.mp4 s2.mp4 s3.mp4 --project "Snack Study"
 python -m groupthink.cli --videos *.mp4 --project "Snack Study" --no-render
 ```
 
+## Steering the analysis (optional)
+
+Two optional inputs on the intake screen give Claude more to work with:
+
+- **Topics to focus on** — list the themes you want covered. Tick **"Only find
+  themes within these topics"** to restrict to your list, or leave it unticked
+  to have GroupThink prioritise them *and* surface other themes that emerge.
+- **Discussion guide** — paste your moderator's guide so the AI understands what
+  each session set out to explore.
+
+Both are passed to the theme-finding step; the transcript stays cached, so
+re-running with tweaked topics is cheap.
+
 ## Outputs
 
 For each project GroupThink produces:

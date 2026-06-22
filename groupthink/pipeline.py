@@ -16,7 +16,7 @@ from .analysis import build_analyzer, resolve_report
 from .assembly import timeline, video
 from .audio import extract_audio, probe_duration_ms
 from .config import Settings, load_settings
-from .models import ThemeReport, Transcript
+from .models import AnalysisBrief, ThemeReport, Transcript
 from .transcription import build_transcriber
 
 # A progress reporter: (human-readable message, fraction complete 0.0-1.0).
@@ -77,6 +77,7 @@ def analyze_sessions(
     project: str,
     settings: Settings | None = None,
     work_dir: str | None = None,
+    brief: AnalysisBrief | None = None,
 ) -> tuple[list[Transcript], ThemeReport]:
     """Stages 1-3: produce the reviewable ThemeReport (no rendering)."""
     settings = settings or load_settings()
@@ -84,7 +85,7 @@ def analyze_sessions(
 
     transcripts = transcribe_sessions(videos, settings, work_dir)
     analyzer = build_analyzer(settings)
-    analysis = analyzer.analyze(transcripts, project)
+    analysis = analyzer.analyze(transcripts, project, brief)
     report = resolve_report(analysis, transcripts, project)
     return transcripts, report
 
