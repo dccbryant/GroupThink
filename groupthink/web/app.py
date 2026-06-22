@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from ..analysis import build_analyzer, resolve_report
 from ..assembly.document import build_doc_html, build_docx
 from ..config import Settings, load_settings
+from ..models import AnalysisBrief
 from ..sources import list_videos
 from ..demo import make_demo_videos
 from ..models import ThemeReport
@@ -168,6 +169,7 @@ def _analyze_job(
     project_name: str,
     videos: list[str],
     title: str = "",
+    brief: AnalysisBrief | None = None,
     make_demo: bool = False,
 ) -> None:
     """Run transcription + theme analysis, reporting progress into the job."""
@@ -188,7 +190,7 @@ def _analyze_job(
 
     using = "Claude" if settings.has_anthropic else "keyword fallback"
     _update_job(job_id, step=f"Finding themes across sessions ({using})…", progress=0.72)
-    analysis = build_analyzer(settings).analyze(transcripts, project_name)
+    analysis = build_analyzer(settings).analyze(transcripts, project_name, brief)
 
     _update_job(job_id, step="Resolving quotes and timecodes…", progress=0.94)
     report = resolve_report(analysis, transcripts, project_name)
@@ -282,6 +284,9 @@ async def create_project(
     title: str = Form(""),
     folder: str = Form(""),
     recursive: str = Form(""),
+    topics: str = Form(""),
+    restrict_topics: str = Form(""),
+    discussion_guide: str = Form(""),
     files: Optional[List[UploadFile]] = None,  # noqa: UP006,UP007 — runtime-evaluated by FastAPI; keep 3.9-safe
 ) -> dict:
     """Start analysis from uploaded files OR a local folder path.
@@ -315,8 +320,13 @@ async def create_project(
     else:
         raise HTTPException(400, "Choose videos to upload, or paste a folder path.")
 
+    brief = AnalysisBrief(
+        topics=topics,
+        restrict_to_topics=restrict_topics.strip().lower() in ("1", "true", "on", "yes"),
+        discussion_guide=discussion_guide,
+    )
     job_id = _new_job()
-    _spawn(job_id, lambda: _analyze_job(job_id, project_id, project, video_paths, title=title))
+    _spawn(job_id, lambda: _analyze_job(job_id, project_id, project, video_paths, title=title, brief=brief))
     return {"job_id": job_id, "project_id": project_id}
 
 

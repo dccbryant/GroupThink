@@ -109,6 +109,24 @@ class AnalysisResult(BaseModel):
     themes: list[ThemeDraft]
 
 
+class AnalysisBrief(BaseModel):
+    """Optional researcher guidance that steers theme-finding.
+
+    - `topics`: free text of themes/topics the researcher wants covered.
+    - `restrict_to_topics`: if True, only find themes under those topics;
+      if False, prioritise them but also surface other emergent themes.
+    - `discussion_guide`: the research discussion guide, for extra context.
+    """
+
+    topics: str = ""
+    restrict_to_topics: bool = False
+    discussion_guide: str = ""
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.topics.strip() or self.discussion_guide.strip())
+
+
 # --------------------------------------------------------------------------- #
 # Resolved report (analysis output joined back to real timecodes)
 # --------------------------------------------------------------------------- #
