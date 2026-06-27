@@ -117,6 +117,9 @@ Two optional inputs on the intake screen give Claude more to work with:
 - **Topics to focus on** — list the themes you want covered. Tick **"Only find
   themes within these topics"** to restrict to your list, or leave it unticked
   to have GroupThink prioritise them *and* surface other themes that emerge.
+  In restricted mode, your topics become the **section titles verbatim** (in the
+  order you list them) — used as the title cards in the video and the headings in
+  the document — with the findings and quotes grouped under each.
 - **Discussion guide** — paste your moderator's guide so the AI understands what
   each session set out to explore.
 

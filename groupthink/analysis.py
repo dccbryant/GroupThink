@@ -13,6 +13,7 @@ demo producing a (rougher) report end-to-end.
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 
 from .config import Settings
 from .models import (
@@ -63,6 +64,23 @@ def render_transcripts(transcripts: list[Transcript]) -> str:
     return "\n\n".join(blocks)
 
 
+def parse_topics(text: str) -> list[str]:
+    """Split the topics field into clean items.
+
+    Prefers one-per-line; falls back to comma separation for a single line so a
+    line like "Price, value and cost" isn't split mid-phrase.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    raw_items = lines if len(lines) > 1 else text.split(",")
+    items: list[str] = []
+    for raw in raw_items:
+        # Strip a leading bullet or number marker like "- ", "* ", "1. ", "2) ".
+        cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s+", "", raw).strip()
+        if cleaned:
+            items.append(cleaned)
+    return items
+
+
 def render_brief(brief: AnalysisBrief | None) -> str:
     """Render the researcher's guidance (topics, restriction, guide) for the prompt."""
     if brief is None or brief.is_empty:
@@ -74,17 +92,25 @@ def render_brief(brief: AnalysisBrief | None) -> str:
             "these sessions — use it for context on what was explored):\n"
             + brief.discussion_guide.strip()
         )
-    if brief.topics.strip():
+    topics = parse_topics(brief.topics)
+    if topics:
+        numbered = "\n".join(f"{i}. {t}" for i, t in enumerate(topics, start=1))
         if brief.restrict_to_topics:
             parts.append(
-                "TOPICS TO FOCUS ON — the researcher wants themes ONLY within these "
-                "topics. Do not introduce themes unrelated to them:\n" + brief.topics.strip()
+                "TOPICS — these are the SECTION TITLES for the output. Use each topic "
+                "VERBATIM as a theme title, keep them in the order given, and create "
+                "exactly one theme per topic (this overrides the earlier 3-6 themes and "
+                "ordering guidance). Under each, write a one or two sentence summary of "
+                "what respondents said about it — you may describe sub-themes within it — "
+                "and select 3-6 supporting quotes drawn from across the sessions. Do NOT "
+                "add any theme outside this list; omit a topic only if the sessions "
+                "contain nothing relevant to it:\n\n" + numbered
             )
         else:
             parts.append(
-                "TOPICS TO PRIORITISE — organise themes around these where the "
-                "sessions support it, AND also surface any other strong themes that "
-                "emerge on their own:\n" + brief.topics.strip()
+                "TOPICS TO PRIORITISE — organise themes around these where the sessions "
+                "support it, AND also surface any other strong themes that emerge on "
+                "their own:\n\n" + numbered
             )
     return "\n\n".join(parts)
 
@@ -174,9 +200,34 @@ class KeywordAnalyzer:
         self,
         transcripts: list[Transcript],
         project: str,
-        brief: AnalysisBrief | None = None,  # noqa: ARG002 — fallback ignores guidance
+        brief: AnalysisBrief | None = None,
     ) -> AnalysisResult:
         all_utterances = [u for t in transcripts for u in t.utterances]
+
+        # Restricted mode: title one theme per user topic, matched by keyword.
+        if brief is not None and brief.restrict_to_topics and brief.topics.strip():
+            themes: list[ThemeDraft] = []
+            for topic in parse_topics(brief.topics):
+                words = [w.lower() for w in re.findall(r"[A-Za-z]+", topic) if len(w) > 3]
+                matches = [
+                    u for u in all_utterances
+                    if words and any(w in u.text.lower() for w in words)
+                ]
+                if not matches:
+                    continue
+                themes.append(
+                    ThemeDraft(
+                        title=topic,
+                        summary=f"What respondents said about {topic.lower()}.",
+                        quotes=[
+                            QuoteSelection(utterance_id=u.uid, quote=u.text,
+                                           rationale="Relates to the topic.")
+                            for u in matches[:6]
+                        ],
+                    )
+                )
+            return AnalysisResult(themes=themes)
+
         themes: list[ThemeDraft] = []
 
         for title, keywords in self._SEED_THEMES.items():
