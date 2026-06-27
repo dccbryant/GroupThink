@@ -49,25 +49,32 @@ def build_edl(report: ThemeReport, fps: int = 30, title_card_ms: int = TITLE_CAR
         record_ms += title_card_ms
         event += 1
 
+    def quote_event(quote) -> None:
+        nonlocal event, record_ms
+        duration = quote.duration_ms
+        reel = _reel_name(quote.source_video)
+        lines.append(
+            f"{event:03d}  {reel:<8} AA/V  C        "
+            f"{tc(quote.start_ms)} {tc(quote.end_ms)} "
+            f"{tc(record_ms)} {tc(record_ms + duration)}"
+        )
+        lines.append(f"* FROM CLIP NAME: {Path(quote.source_video).name}")
+        lines.append(f"* QUOTE ({quote.speaker}): {quote.quote}")
+        lines.append("")
+        record_ms += duration
+        event += 1
+
     # Opening card with the research video title.
     title_event(report.display_title)
 
     for theme in report.themes:
         title_event(theme.title)
-
+        for sub in theme.subthemes:
+            title_event(sub.title)
+            for quote in sub.quotes:
+                quote_event(quote)
         for quote in theme.quotes:
-            duration = quote.duration_ms
-            reel = _reel_name(quote.source_video)
-            lines.append(
-                f"{event:03d}  {reel:<8} AA/V  C        "
-                f"{tc(quote.start_ms)} {tc(quote.end_ms)} "
-                f"{tc(record_ms)} {tc(record_ms + duration)}"
-            )
-            lines.append(f"* FROM CLIP NAME: {Path(quote.source_video).name}")
-            lines.append(f"* QUOTE ({quote.speaker}): {quote.quote}")
-            lines.append("")
-            record_ms += duration
-            event += 1
+            quote_event(quote)
 
     return "\n".join(lines) + "\n"
 
@@ -88,7 +95,7 @@ def build_fcpxml(report: ThemeReport, fps: int = 30, title_card_ms: int = TITLE_
     sources = []
     seen: set[str] = set()
     for theme in report.themes:
-        for quote in theme.quotes:
+        for quote in theme.all_quotes():
             if quote.source_video not in seen:
                 seen.add(quote.source_video)
                 sources.append(quote.source_video)
@@ -125,22 +132,29 @@ def build_fcpxml(report: ThemeReport, fps: int = 30, title_card_ms: int = TITLE_
         )
         offset_ms += title_card_ms
 
+    def clip_item(quote) -> None:
+        nonlocal offset_ms
+        asset_id = asset_ids[quote.source_video]
+        spine_items.append(
+            f'<asset-clip name="{html.escape(quote.speaker)}" ref="{asset_id}" '
+            f'offset="{_fcp_duration(offset_ms, fps)}" '
+            f'start="{_fcp_duration(quote.start_ms, fps)}" '
+            f'duration="{_fcp_duration(quote.duration_ms, fps)}" format="{fmt_id}">'
+            f"<note>{html.escape(quote.quote)}</note></asset-clip>"
+        )
+        offset_ms += quote.duration_ms
+
     # Opening card with the research video title.
     title_item(report.display_title)
 
     for theme in report.themes:
         title_item(theme.title)
-
+        for sub in theme.subthemes:
+            title_item(sub.title)
+            for quote in sub.quotes:
+                clip_item(quote)
         for quote in theme.quotes:
-            asset_id = asset_ids[quote.source_video]
-            spine_items.append(
-                f'<asset-clip name="{html.escape(quote.speaker)}" ref="{asset_id}" '
-                f'offset="{_fcp_duration(offset_ms, fps)}" '
-                f'start="{_fcp_duration(quote.start_ms, fps)}" '
-                f'duration="{_fcp_duration(quote.duration_ms, fps)}" format="{fmt_id}">'
-                f"<note>{html.escape(quote.quote)}</note></asset-clip>"
-            )
-            offset_ms += quote.duration_ms
+            clip_item(quote)
 
     total = _fcp_duration(offset_ms, fps)
     project_name = html.escape(report.project)

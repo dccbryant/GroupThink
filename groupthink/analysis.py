@@ -21,6 +21,7 @@ from .models import (
     AnalysisResult,
     QuoteSelection,
     ResolvedQuote,
+    ResolvedSubTheme,
     ResolvedTheme,
     ThemeDraft,
     ThemeReport,
@@ -42,6 +43,11 @@ For each theme:
 - Select 3-6 of the strongest supporting quotes. Prefer quotes drawn from \
 DIFFERENT sessions and different speakers so the theme is shown to be shared, \
 not the opinion of one person.
+
+A theme may either list supporting quotes directly, or — when it naturally \
+subdivides — group them under named sub-themes (each sub-theme having its own \
+short title and supporting quotes). Use sub-themes when asked to, or when a \
+theme clearly contains distinct sub-points.
 
 Rules for quotes:
 - Reference each quote by its exact utterance id (e.g. S2-0031), copied from the \
@@ -100,11 +106,13 @@ def render_brief(brief: AnalysisBrief | None) -> str:
                 "TOPICS — these are the SECTION TITLES for the output. Use each topic "
                 "VERBATIM as a theme title, keep them in the order given, and create "
                 "exactly one theme per topic (this overrides the earlier 3-6 themes and "
-                "ordering guidance). Under each, write a one or two sentence summary of "
-                "what respondents said about it — you may describe sub-themes within it — "
-                "and select 3-6 supporting quotes drawn from across the sessions. Do NOT "
-                "add any theme outside this list; omit a topic only if the sessions "
-                "contain nothing relevant to it:\n\n" + numbered
+                "ordering guidance). Within each topic, identify the SUB-THEMES that "
+                "emerge from the sessions — give each sub-theme a short title and 1-4 "
+                "supporting quotes, and put the quotes inside the sub-themes (use the "
+                "`subthemes` field). Also write a one or two sentence summary for the "
+                "topic. If a topic genuinely does not subdivide, you may instead attach "
+                "3-6 quotes directly to it. Do NOT add any theme outside this list; omit "
+                "a topic only if the sessions contain nothing relevant to it:\n\n" + numbered
             )
         else:
             parts.append(
@@ -284,32 +292,41 @@ def resolve_report(
         for u in t.utterances:
             index[u.uid] = (t, u)
 
-    resolved_themes: list[ResolvedTheme] = []
-    for theme in analysis.themes:
-        resolved_quotes: list[ResolvedQuote] = []
-        for sel in theme.quotes:
+    def resolve_quotes(selections: list[QuoteSelection]) -> list[ResolvedQuote]:
+        out: list[ResolvedQuote] = []
+        for sel in selections:
             found = index.get(sel.utterance_id)
             if found is None:
                 continue
             transcript, utterance = found
-            resolved_quotes.append(
+            out.append(
                 ResolvedQuote(
                     session_id=transcript.session_id,
                     source_video=transcript.source_video,
                     speaker=utterance.speaker,
-                    # Trust the utterance text for what actually gets cut.
-                    quote=utterance.text,
+                    quote=utterance.text,  # trust the transcript for what gets cut
                     rationale=sel.rationale,
                     start_ms=utterance.start_ms,
                     end_ms=utterance.end_ms,
                 )
             )
-        if resolved_quotes:
+        return out
+
+    resolved_themes: list[ResolvedTheme] = []
+    for theme in analysis.themes:
+        resolved_subs: list[ResolvedSubTheme] = []
+        for sub in theme.subthemes:
+            sub_quotes = resolve_quotes(sub.quotes)
+            if sub_quotes:
+                resolved_subs.append(ResolvedSubTheme(title=sub.title, quotes=sub_quotes))
+        flat_quotes = resolve_quotes(theme.quotes)
+        if resolved_subs or flat_quotes:
             resolved_themes.append(
                 ResolvedTheme(
                     title=theme.title,
                     summary=theme.summary,
-                    quotes=resolved_quotes,
+                    subthemes=resolved_subs,
+                    quotes=flat_quotes,
                 )
             )
 

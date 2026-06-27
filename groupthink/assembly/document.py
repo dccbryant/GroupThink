@@ -36,22 +36,28 @@ def build_docx(report: ThemeReport) -> bytes:
     intro = doc.add_paragraph("Focus group themes and supporting quotes")
     intro.runs[0].italic = True
 
+    def add_quote(quote, level: int) -> None:
+        bullet = doc.add_paragraph(style="List Bullet 2" if level else "List Bullet")
+        run = bullet.add_run(f"“{quote.quote}”")
+        run.italic = True
+        meta = doc.add_paragraph()
+        meta_run = meta.add_run(
+            f"{quote.speaker} — {_source_name(quote.source_video)} "
+            f"@ {_timecode(quote.start_ms)}–{_timecode(quote.end_ms)}"
+        )
+        meta_run.font.size = Pt(9)
+        meta_run.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+
     for i, theme in enumerate(report.themes, start=1):
         doc.add_heading(f"{i}. {theme.title}", level=1)
         if theme.summary:
             doc.add_paragraph(theme.summary)
-        for quote in theme.quotes:
-            bullet = doc.add_paragraph(style="List Bullet")
-            run = bullet.add_run(f"“{quote.quote}”")
-            run.italic = True
-
-            meta = doc.add_paragraph()
-            meta_run = meta.add_run(
-                f"{quote.speaker} — {_source_name(quote.source_video)} "
-                f"@ {_timecode(quote.start_ms)}–{_timecode(quote.end_ms)}"
-            )
-            meta_run.font.size = Pt(9)
-            meta_run.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+        for sub in theme.subthemes:
+            doc.add_heading(sub.title, level=2)
+            for quote in sub.quotes:
+                add_quote(quote, level=1)
+        for quote in theme.quotes:  # flat quotes (themes without sub-themes)
+            add_quote(quote, level=0)
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -64,24 +70,34 @@ def build_doc_html(report: ThemeReport) -> str:
     parts = [
         "<html><head><meta charset='utf-8'><style>"
         "body{font-family:Calibri,Arial,sans-serif;max-width:760px;margin:40px auto;color:#222}"
-        "h1{font-size:24px} h2{font-size:18px;margin-top:28px}"
+        "h1{font-size:24px} h2{font-size:18px;margin-top:28px} h3{font-size:15px;margin:18px 0 4px}"
         ".summary{color:#444} blockquote{margin:8px 0;font-style:italic;"
         "border-left:3px solid #888;padding-left:12px}"
         ".meta{color:#888;font-size:12px;margin:2px 0 12px 12px}"
+        ".sub{margin-left:18px}"
         "</style></head><body>",
         f"<h1>{esc(report.display_title)}</h1>",
         "<p class='summary'><em>Focus group themes and supporting quotes</em></p>",
     ]
+
+    def quote_html(quote, sub: bool) -> str:
+        cls = "sub" if sub else ""
+        return (
+            f"<blockquote class='{cls}'>&ldquo;{esc(quote.quote)}&rdquo;</blockquote>"
+            f"<div class='meta {cls}'>{esc(quote.speaker)} &middot; "
+            f"{esc(_source_name(quote.source_video))} &middot; "
+            f"{_timecode(quote.start_ms)}&ndash;{_timecode(quote.end_ms)}</div>"
+        )
+
     for i, theme in enumerate(report.themes, start=1):
         parts.append(f"<h2>{i}. {esc(theme.title)}</h2>")
         if theme.summary:
             parts.append(f"<p class='summary'>{esc(theme.summary)}</p>")
+        for sub in theme.subthemes:
+            parts.append(f"<h3>{esc(sub.title)}</h3>")
+            for quote in sub.quotes:
+                parts.append(quote_html(quote, sub=True))
         for quote in theme.quotes:
-            parts.append(f"<blockquote>&ldquo;{esc(quote.quote)}&rdquo;</blockquote>")
-            parts.append(
-                f"<div class='meta'>{esc(quote.speaker)} &middot; "
-                f"{esc(_source_name(quote.source_video))} &middot; "
-                f"{_timecode(quote.start_ms)}&ndash;{_timecode(quote.end_ms)}</div>"
-            )
+            parts.append(quote_html(quote, sub=False))
     parts.append("</body></html>")
     return "".join(parts)

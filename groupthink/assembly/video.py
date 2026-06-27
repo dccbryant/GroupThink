@@ -261,8 +261,13 @@ def render_report(
     segments_dir = out_dir_path / "segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
 
-    # One opening card + one card per theme + one per quote, plus a final concat.
-    total_steps = 1 + sum(1 + len(t.quotes) for t in report.themes) + 1
+    # Opening card + per theme: a topic card, optional sub-theme cards, and a
+    # card-or-clip per quote; plus a final concat.
+    total_steps = 1 + 1
+    for t in report.themes:
+        total_steps += 1 + len(t.quotes)
+        for sub in t.subthemes:
+            total_steps += 1 + len(sub.quotes)
     done = 0
     all_text_ok = True
 
@@ -276,28 +281,39 @@ def render_report(
     segment_paths: list[Path] = []
     seq = 0
 
-    # Opening card with the research video's title, set a little larger.
-    step(f"Rendering opening title: {report.display_title}")
-    opening = segments_dir / f"{seq:03d}_opening.mp4"
-    _, ok = render_title_card(report.display_title, str(opening), settings, fontsize=84)
-    all_text_ok = all_text_ok and ok
-    segment_paths.append(opening)
-    seq += 1
-
-    for theme in report.themes:
-        step(f"Rendering title card: {theme.title}")
+    def add_title(text: str, fontsize: int) -> None:
+        nonlocal seq, all_text_ok
         card = segments_dir / f"{seq:03d}_title.mp4"
-        _, ok = render_title_card(theme.title, str(card), settings)
+        _, ok = render_title_card(text, str(card), settings, fontsize=fontsize)
         all_text_ok = all_text_ok and ok
         segment_paths.append(card)
         seq += 1
 
+    def add_clip(quote) -> None:
+        nonlocal seq
+        clip = segments_dir / f"{seq:03d}_clip.mp4"
+        render_clip(quote.source_video, quote.start_ms, quote.end_ms, str(clip), settings)
+        segment_paths.append(clip)
+        seq += 1
+
+    # Opening card with the research video's title, set a little larger.
+    step(f"Rendering opening title: {report.display_title}")
+    add_title(report.display_title, fontsize=84)
+
+    for theme in report.themes:
+        step(f"Rendering title card: {theme.title}")
+        add_title(theme.title, fontsize=72)
+
+        for sub in theme.subthemes:
+            step(f"Rendering sub-theme: {sub.title}")
+            add_title(sub.title, fontsize=52)
+            for quote in sub.quotes:
+                step(f"Cutting clip for “{sub.title}”…")
+                add_clip(quote)
+
         for q_index, quote in enumerate(theme.quotes, start=1):
             step(f"Cutting clip {q_index} of {len(theme.quotes)} for “{theme.title}”…")
-            clip = segments_dir / f"{seq:03d}_clip.mp4"
-            render_clip(quote.source_video, quote.start_ms, quote.end_ms, str(clip), settings)
-            segment_paths.append(clip)
-            seq += 1
+            add_clip(quote)
 
     if not segment_paths:
         raise RuntimeError("Nothing to render — the report has no resolvable quotes.")

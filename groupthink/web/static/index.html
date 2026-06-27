@@ -27,6 +27,8 @@
   .theme { border:1px solid var(--line); border-radius:9px; padding:16px; margin-bottom:14px; }
   .theme .title-input { font-size:17px; font-weight:600; margin-bottom:8px; }
   .quote { border-left:3px solid var(--accent); padding:8px 12px; margin:8px 0; background:#0d1117; border-radius:0 6px 6px 0; }
+  .subtheme { margin:12px 0 4px; padding-left:14px; border-left:2px solid var(--line); }
+  .subtitle-input { font-size:14px; font-weight:600; width:100%; background:#0d1117; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 9px; margin-bottom:6px; }
   .quote .meta { font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; justify-content:space-between; }
   .muted { color:var(--muted); font-size:13px; }
   a.dl { color:var(--accent); text-decoration:none; margin-right:14px; font-size:14px; }
@@ -285,31 +287,46 @@ function renderThemes() {
   report.themes.forEach((theme, ti) => {
     const div = document.createElement('div');
     div.className = 'theme';
-    div.innerHTML = `
+    let inner = `
       <input class="title-input" type="text" value="${escapeHtml(theme.title)}"
              onchange="report.themes[${ti}].title=this.value" />
-      <textarea onchange="report.themes[${ti}].summary=this.value">${escapeHtml(theme.summary)}</textarea>
-      <div>${theme.quotes.map((q, qi) => quoteHtml(ti, qi, q)).join('')}</div>`;
+      <textarea onchange="report.themes[${ti}].summary=this.value">${escapeHtml(theme.summary)}</textarea>`;
+    (theme.subthemes || []).forEach((sub, si) => {
+      inner += `<div class="subtheme">
+        <input class="subtitle-input" type="text" value="${escapeHtml(sub.title)}"
+               onchange="report.themes[${ti}].subthemes[${si}].title=this.value" />
+        ${(sub.quotes || []).map((q, qi) => quoteHtml(ti, si, qi, q)).join('')}
+      </div>`;
+    });
+    inner += (theme.quotes || []).map((q, qi) => quoteHtml(ti, null, qi, q)).join('');
+    div.innerHTML = inner;
     wrap.appendChild(div);
   });
   document.getElementById('review').classList.remove('hidden');
   document.getElementById('output').classList.add('hidden');
 }
 
-function quoteHtml(ti, qi, q) {
+function quoteHtml(ti, si, qi, q) {
   const t = (ms) => (ms/1000).toFixed(1) + 's';
+  const sarg = si === null ? 'null' : si;
   return `<div class="quote">
     <div class="meta">
       <span>${escapeHtml(q.speaker)} &middot; ${escapeHtml(q.source_video.split('/').pop())} &middot; ${t(q.start_ms)}&ndash;${t(q.end_ms)}</span>
-      <button class="ghost" onclick="dropQuote(${ti},${qi})">remove</button>
+      <button class="ghost" onclick="dropQuote(${ti},${sarg},${qi})">remove</button>
     </div>
     <div>&ldquo;${escapeHtml(q.quote)}&rdquo;</div>
   </div>`;
 }
 
-function dropQuote(ti, qi) {
-  report.themes[ti].quotes.splice(qi, 1);
-  if (!report.themes[ti].quotes.length) report.themes.splice(ti, 1);
+function dropQuote(ti, si, qi) {
+  const theme = report.themes[ti];
+  const list = (si === null) ? theme.quotes : theme.subthemes[si].quotes;
+  list.splice(qi, 1);
+  // Drop an emptied sub-theme, then an emptied theme.
+  if (si !== null && theme.subthemes[si].quotes.length === 0) theme.subthemes.splice(si, 1);
+  const subCount = (theme.subthemes || []).length;
+  const flatCount = (theme.quotes || []).length;
+  if (subCount === 0 && flatCount === 0) report.themes.splice(ti, 1);
   renderThemes();
 }
 
