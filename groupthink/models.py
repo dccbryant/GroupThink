@@ -91,15 +91,33 @@ class QuoteSelection(BaseModel):
     )
 
 
+class SubThemeDraft(BaseModel):
+    """A sub-theme grouped under a theme/topic, with its own supporting quotes."""
+
+    title: str = Field(description="A short sub-theme title (3-7 words).")
+    quotes: list[QuoteSelection] = Field(
+        description="1-4 supporting quotes for this sub-theme."
+    )
+
+
 class ThemeDraft(BaseModel):
-    """A theme as proposed by Claude, before timecode resolution."""
+    """A theme as proposed by Claude, before timecode resolution.
+
+    A theme either lists quotes directly (flat) or groups them under named
+    sub-themes — used when a topic naturally subdivides.
+    """
 
     title: str = Field(description="A short, presentable theme title (3-7 words).")
     summary: str = Field(
         description="One or two sentences describing the theme in the researcher's voice."
     )
+    subthemes: list[SubThemeDraft] = Field(
+        default_factory=list,
+        description="Sub-themes grouped under this theme (used in restricted/topic mode). Leave empty for a flat theme.",
+    )
     quotes: list[QuoteSelection] = Field(
-        description="3-6 supporting quotes drawn from across the sessions."
+        default_factory=list,
+        description="Supporting quotes when this theme has no sub-themes (3-6 of them).",
     )
 
 
@@ -148,10 +166,24 @@ class ResolvedQuote(BaseModel):
         return self.end_ms - self.start_ms
 
 
+class ResolvedSubTheme(BaseModel):
+    title: str
+    quotes: list[ResolvedQuote]
+
+
 class ResolvedTheme(BaseModel):
     title: str
     summary: str
-    quotes: list[ResolvedQuote]
+    subthemes: list[ResolvedSubTheme] = Field(default_factory=list)
+    quotes: list[ResolvedQuote] = Field(default_factory=list)
+
+    def all_quotes(self) -> list[ResolvedQuote]:
+        """Every quote under this theme, sub-theme quotes first then flat."""
+        out: list[ResolvedQuote] = []
+        for sub in self.subthemes:
+            out.extend(sub.quotes)
+        out.extend(self.quotes)
+        return out
 
 
 class ThemeReport(BaseModel):

@@ -119,7 +119,10 @@ Two optional inputs on the intake screen give Claude more to work with:
   to have GroupThink prioritise them *and* surface other themes that emerge.
   In restricted mode, your topics become the **section titles verbatim** (in the
   order you list them) — used as the title cards in the video and the headings in
-  the document — with the findings and quotes grouped under each.
+  the document — and Claude groups the findings into **sub-themes under each
+  topic** (e.g. *Distrust of the system → "too much bureaucracy", "sick care vs
+  health care"*), each with its own supporting quotes. The sub-themes appear as
+  sub-headings in the document and as sub-title cards in the reel/timelines.
 - **Discussion guide** — paste your moderator's guide so the AI understands what
   each session set out to explore.
 
