@@ -89,15 +89,20 @@ _JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
 
 
+class JobCancelled(Exception):
+    """Raised inside a worker when the user has cancelled the job."""
+
+
 def _new_job() -> str:
     job_id = uuid.uuid4().hex[:12]
     with _JOBS_LOCK:
         _JOBS[job_id] = {
-            "status": "running",   # running | done | error
+            "status": "running",   # running | done | error | cancelled
             "step": "Starting…",
             "progress": 0.0,
             "error": None,
             "result": None,
+            "cancel_requested": False,
         }
     return job_id
 
@@ -107,9 +112,21 @@ def _update_job(job_id: str, **fields) -> None:
         _JOBS[job_id].update(fields)
 
 
+def _is_cancelled(job_id: str) -> bool:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        return bool(job and job.get("cancel_requested"))
+
+
 def _progress(job_id: str, base: float, span: float) -> Callable[[str, float], None]:
-    """A pipeline progress callback that maps a 0-1 fraction into [base, base+span]."""
+    """A pipeline progress callback that maps a 0-1 fraction into [base, base+span].
+
+    Doubles as a cooperative-cancel checkpoint: if the user has hit Cancel,
+    the next progress tick raises JobCancelled so the worker can exit cleanly.
+    """
     def cb(message: str, frac: float) -> None:
+        if _is_cancelled(job_id):
+            raise JobCancelled()
         _update_job(job_id, step=message, progress=round(base + span * frac, 3))
     return cb
 
@@ -118,6 +135,8 @@ def _spawn(job_id: str, target: Callable[[], None]) -> None:
     def runner() -> None:
         try:
             target()
+        except JobCancelled:
+            _update_job(job_id, status="cancelled", step="Cancelled.", error=None)
         except Exception as exc:  # surface the real reason instead of a blank 500
             _update_job(job_id, status="error", error=f"{type(exc).__name__}: {exc}")
 
@@ -191,7 +210,13 @@ def _analyze_job(
 
     using = "Claude" if settings.has_anthropic else "keyword fallback"
     _update_job(job_id, step=f"Finding themes across sessions ({using})…", progress=0.72)
+    if _is_cancelled(job_id):
+        raise JobCancelled()
     analysis = build_analyzer(settings).analyze(transcripts, project_name, brief)
+    # The Claude call can't be interrupted mid-flight, but if the user pressed
+    # Cancel while it was running we should drop the result rather than persist it.
+    if _is_cancelled(job_id):
+        raise JobCancelled()
 
     _update_job(job_id, step="Resolving quotes and timecodes…", progress=0.94)
     report = resolve_report(analysis, transcripts, project_name)
@@ -281,6 +306,18 @@ def get_job(job_id: str) -> dict:
         if job is None:
             raise HTTPException(404, "Unknown job.")
         return dict(job)
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    """Ask a running job to stop. Honored at the next progress checkpoint."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(404, "Unknown job.")
+        if job["status"] == "running":
+            job["cancel_requested"] = True
+    return {"ok": True}
 
 
 @app.post("/api/projects")
