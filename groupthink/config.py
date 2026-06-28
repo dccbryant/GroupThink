@@ -1,13 +1,32 @@
-"""Runtime configuration, resolved from environment variables.
+"""Runtime configuration.
 
-Nothing here is secret-bearing on its own — API keys are read from the
-environment at call time and never written to disk.
+API keys come from the environment (or the in-app key store layered on top by
+the web app). Binary paths and the work directory are resolved with bundle
+awareness so the same code path serves both the source checkout and the
+packaged macOS desktop app.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .runtime import app_support_dir, find_binary, is_frozen
+
+
+def _default_work_dir() -> str:
+    """Pick a sensible work directory.
+
+    Frozen .app: per-user Application Support folder (writable, persistent).
+    Source: a ``./workspace`` folder next to wherever the user launched it.
+    Either is overridable via ``GROUPTHINK_WORK_DIR``.
+    """
+    override = os.getenv("GROUPTHINK_WORK_DIR")
+    if override:
+        return override
+    if is_frozen():
+        return str(app_support_dir() / "workspace")
+    return "./workspace"
 
 
 @dataclass(frozen=True)
@@ -27,18 +46,15 @@ class Settings:
     anthropic_api_key: str | None = os.getenv("ANTHROPIC_API_KEY")
     analysis_model: str = os.getenv("ANALYSIS_MODEL", "claude-opus-4-8")
 
-    # When mock mode is on for analysis too (no Anthropic key), the pipeline
-    # falls back to a naive keyword grouping so the demo still produces themes.
-    # This is set automatically in pipeline.py based on key availability.
-
-    # Video rendering
-    ffmpeg_bin: str = os.getenv("FFMPEG_BIN", "ffmpeg")
-    ffprobe_bin: str = os.getenv("FFPROBE_BIN", "ffprobe")
+    # Video rendering. find_binary() resolves to the bundled ffmpeg/ffprobe when
+    # frozen, falling through to PATH and Homebrew locations otherwise.
+    ffmpeg_bin: str = field(default_factory=lambda: find_binary("ffmpeg"))
+    ffprobe_bin: str = field(default_factory=lambda: find_binary("ffprobe"))
     render_fps: int = int(os.getenv("RENDER_FPS", "30"))
     title_card_seconds: float = float(os.getenv("TITLE_CARD_SECONDS", "3.0"))
 
     # Where uploads and renders are written.
-    work_dir: str = os.getenv("GROUPTHINK_WORK_DIR", "./workspace")
+    work_dir: str = field(default_factory=_default_work_dir)
 
     @property
     def has_anthropic(self) -> bool:

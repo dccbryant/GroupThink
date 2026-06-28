@@ -83,6 +83,24 @@ folder's path (make the files "available offline" first).
 user-only file (`~/.groupthink/keys.json`) and reloaded on restart, so you don't
 re-paste them each time. "Forget saved keys" clears them.
 
+## Mac desktop app (build a `.app`)
+
+GroupThink ships as a native Mac application bundle — a single double-clickable
+**`GroupThink.app`** that contains Python, ffmpeg, the web UI, and everything
+else. The researcher's video never leaves their machine.
+
+To build it on your Mac:
+
+```bash
+brew install ffmpeg python      # if you don't already have them
+bash packaging/build_macos.sh   # → produces dist/GroupThink.app
+```
+
+Drag the `.app` to `/Applications` and double-click. On first launch macOS
+Gatekeeper may warn — right-click → **Open** → **Open** once, then it'll
+behave like any other app. Full details, what's bundled, and the path to
+signed/notarized builds: [packaging/README.md](packaging/README.md).
+
 ## Production use
 
 Set keys (see `.env.example`) to switch on the real backends:

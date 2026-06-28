@@ -1,0 +1,4 @@
+# Extra dependencies needed to build and run the desktop .app.
+# Install on top of requirements.txt:  pip install -r requirements-desktop.txt
+pywebview>=4.4
+pyinstaller>=6.5
