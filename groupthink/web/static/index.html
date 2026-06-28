@@ -134,6 +134,7 @@
     margin:0 10px 10px 0; font-size:14px; transition:border-color .15s, color .15s;
   }
   a.dl:hover { border-color:var(--accent); color:var(--accent); }
+  button.dl-btn { margin:0 10px 10px 0; padding:8px 13px; font-size:14px; font-weight:400; }
   video { width:100%; border-radius:var(--radius); margin-top:14px; background:#000; border:1px solid var(--line); }
 
   .spinner { display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.5); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:4px; }
@@ -142,6 +143,15 @@
 
   code { font-family:"SF Mono", ui-monospace, Menlo, monospace; font-size:12.5px; background:var(--paper); padding:1px 5px; border-radius:3px; }
   .hidden { display:none; }
+
+  /* Toast for desktop file-save confirmations */
+  .toast {
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+    background:var(--ink); color:#fff; border-radius:var(--radius);
+    padding:10px 16px; font-size:13.5px; box-shadow:0 8px 24px rgba(0,0,0,.18);
+    z-index:9999; opacity:0; transition:opacity .2s;
+  }
+  .toast.show { opacity:1; }
 
   /* Section heading sub-label, two-column grid, "or" divider, analyze bar */
   .step .sub { text-transform:none; letter-spacing:0; font-weight:400; color:var(--ink-soft); margin-left:6px; opacity:.85; }
@@ -304,9 +314,11 @@ Ease of setup and first use" style="min-height:84px"></textarea>
 <script>
 let projectId = null;
 let report = null;
+let isDesktop = false;  // true when running inside the bundled .app
 
 async function loadStatus() {
   const s = await (await fetch('/api/status')).json();
+  isDesktop = !!s.desktop;
   const asr = document.getElementById('badge-asr');
   asr.textContent = s.diarization ? 'diarized (' + s.transcriber + ')' : 'mock transcriber';
   asr.className = 'badge' + (s.diarization ? ' live' : '');
@@ -404,6 +416,9 @@ async function startJob(url, opts, title, onResult) {
   // Tuck the whole intake away while a job is in flight so the progress
   // panel and the eventual review/output sections own the screen.
   const cols = document.getElementById('intake-cols'); if (cols) cols.classList.add('hidden');
+  // Ensure the progress card is in view (fixes "progress pushed below fold"
+  // when the user had scrolled while filling the intake).
+  window.scrollTo({ top:0, behavior:'instant' in window ? 'instant' : 'auto' });
   try {
     const res = await fetch(url, opts);
     if (!res.ok) throw new Error(await res.text());
@@ -499,17 +514,43 @@ function dropQuote(ti, si, qi) {
   renderThemes();
 }
 
+// Toast for desktop file-save confirmations.
+let _toastTimer = null;
+function toast(message, ms = 3200) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// In the desktop .app, write the artifact to ~/Downloads and toast the path.
+// In the browser, fall through to a normal download link.
+async function saveToDownloads(kind, label) {
+  try {
+    const res = await fetch(`/api/projects/${projectId}/save/${kind}`, { method:'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    toast('Saved to ' + data.saved);
+  } catch (e) { alert('Could not save ' + (label || kind) + ': ' + e.message); }
+}
+
 async function saveDoc() {
   const btn = event.target;
   busy(btn, true, 'Saving');
   try {
-    // Persist any edits, then download the Word document of the current report.
+    // Persist any edits, then save the Word document of the current report.
     await fetch(`/api/projects/${projectId}/report`, {
       method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(report)
     });
-    const a = document.createElement('a');
-    a.href = `/api/projects/${projectId}/document`;
-    document.body.appendChild(a); a.click(); a.remove();
+    if (isDesktop) {
+      await saveToDownloads('document', 'Word doc');
+    } else {
+      const a = document.createElement('a');
+      a.href = `/api/projects/${projectId}/document`;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
   } catch (e) { alert('Could not save the document: ' + e.message); }
   finally { busy(btn, false); }
 }
@@ -530,8 +571,15 @@ function showDownloads(artifacts, warning) {
   const warn = warning
     ? `<p style="color:var(--accent); margin:0 0 14px; font-size:13.5px"><strong>Note:</strong> ${escapeHtml(warning)}</p>`
     : '';
-  dl.innerHTML = warn + Object.entries(artifacts)
-    .map(([k, url]) => `<a class="dl" href="${url}" download>↓ ${labels[k] || k}</a>`).join('');
+  if (isDesktop) {
+    // In the .app, real <a download> navigates the whole window. Use buttons
+    // that POST to the save endpoint and toast where the file landed.
+    dl.innerHTML = warn + Object.entries(artifacts)
+      .map(([k]) => `<button class="secondary dl-btn" onclick="saveToDownloads('${k}','${labels[k] || k}')">↓ ${labels[k] || k}</button>`).join('');
+  } else {
+    dl.innerHTML = warn + Object.entries(artifacts)
+      .map(([k, url]) => `<a class="dl" href="${url}" download>↓ ${labels[k] || k}</a>`).join('');
+  }
   const v = document.getElementById('preview');
   if (artifacts.mp4) { v.src = artifacts.mp4; v.classList.remove('hidden'); }
   document.getElementById('output').classList.remove('hidden');
@@ -543,5 +591,6 @@ function escapeHtml(s) {
 
 loadStatus();
 </script>
+<div id="toast" class="toast" role="status"></div>
 </body>
 </html>
