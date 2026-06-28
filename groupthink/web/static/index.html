@@ -142,7 +142,9 @@
   @keyframes spin { to { transform:rotate(360deg); } }
 
   code { font-family:"SF Mono", ui-monospace, Menlo, monospace; font-size:12.5px; background:var(--paper); padding:1px 5px; border-radius:3px; }
-  .hidden { display:none; }
+  /* Utility class — !important wins the specificity tie against more specific
+     display rules declared later in this stylesheet (.intake-cols, etc.). */
+  .hidden { display:none !important; }
 
   /* Toast for desktop file-save confirmations */
   .toast {
@@ -418,7 +420,14 @@ async function startJob(url, opts, title, onResult) {
   const cols = document.getElementById('intake-cols'); if (cols) cols.classList.add('hidden');
   // Ensure the progress card is in view (fixes "progress pushed below fold"
   // when the user had scrolled while filling the intake).
-  window.scrollTo({ top:0, behavior:'instant' in window ? 'instant' : 'auto' });
+  window.scrollTo(0, 0);
+  // Belt-and-suspenders: after the layout has reflowed, snap the progress
+  // card into view explicitly. Some WebKit builds ignore scrollTo when called
+  // immediately after a display:none toggle.
+  requestAnimationFrame(() => {
+    const p = document.getElementById('progress');
+    if (p) p.scrollIntoView({ block:'start' });
+  });
   try {
     const res = await fetch(url, opts);
     if (!res.ok) throw new Error(await res.text());
