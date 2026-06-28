@@ -15,6 +15,8 @@ from __future__ import annotations
 from collections import defaultdict
 import re
 
+from pydantic import ValidationError
+
 from .config import Settings
 from .models import (
     AnalysisBrief,
@@ -148,38 +150,52 @@ class ClaudeAnalyzer:
         if brief_text:
             task = brief_text + "\n\n" + task
 
-        response = self._client.messages.parse(
-            model=self._model,
-            max_tokens=8000,
-            # Theme-finding is judgement-heavy; let Claude think. Effort defaults
-            # to "high", and parse() owns output_config.format, so we don't set
-            # output_config here to avoid clobbering the response schema.
-            thinking={"type": "adaptive"},
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    # Stable instructions cache with the transcript below.
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            # The transcript is large and reused across re-runs of
-                            # the same project — cache it so iterating is cheap.
-                            "type": "text",
-                            "text": f"Project: {project}\n\nTranscripts:\n\n{transcript_text}",
-                            "cache_control": {"type": "ephemeral"},
-                        },
-                        {"type": "text", "text": task},
-                    ],
-                }
-            ],
-            output_format=AnalysisResult,
-        )
+        try:
+            # Longer timeout than the SDK default keeps non-streaming requests
+            # from tripping the 10-minute guard on big transcripts.
+            response = self._client.with_options(timeout=600.0).messages.parse(
+                model=self._model,
+                # Generous budget — sub-themes nest more JSON, and adaptive
+                # thinking shares this allowance, so 8k was getting truncated
+                # mid-string on multi-topic runs.
+                max_tokens=16000,
+                # Theme-finding is judgement-heavy; let Claude think. Effort defaults
+                # to "high", and parse() owns output_config.format, so we don't set
+                # output_config here to avoid clobbering the response schema.
+                thinking={"type": "adaptive"},
+                system=[
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        # Stable instructions cache with the transcript below.
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                # The transcript is large and reused across re-runs of
+                                # the same project — cache it so iterating is cheap.
+                                "type": "text",
+                                "text": f"Project: {project}\n\nTranscripts:\n\n{transcript_text}",
+                                "cache_control": {"type": "ephemeral"},
+                            },
+                            {"type": "text", "text": task},
+                        ],
+                    }
+                ],
+                output_format=AnalysisResult,
+            )
+        except ValidationError as exc:
+            # The most common cause is the response getting cut off mid-JSON
+            # because Claude ran out of room. Give the user something actionable.
+            raise RuntimeError(
+                "Claude's analysis was too long to fit in one response — the "
+                "report's JSON was cut off. Try running with fewer focus topics, "
+                "a shorter discussion guide, or a smaller batch of sessions."
+            ) from exc
         result = response.parsed_output
         if result is None:
             raise RuntimeError(
