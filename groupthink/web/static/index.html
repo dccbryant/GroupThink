@@ -140,6 +140,16 @@
 
   code { font-family:"SF Mono", ui-monospace, Menlo, monospace; font-size:12.5px; background:var(--paper); padding:1px 5px; border-radius:3px; }
   .hidden { display:none; }
+
+  /* New: section heading sub-label, grid, divider, analyze bar */
+  .step .sub { text-transform:none; letter-spacing:0; font-weight:400; color:var(--ink-soft); margin-left:6px; opacity:.85; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:560px) { .grid2 { grid-template-columns:1fr; } }
+  .or { display:flex; align-items:center; gap:14px; color:var(--ink-soft); font-size:12px; letter-spacing:.08em; text-transform:uppercase; margin:6px 0; }
+  .or::before, .or::after { content:""; height:1px; background:var(--line); flex:1; }
+  .analyze-bar { display:flex; align-items:center; justify-content:flex-end; gap:16px; margin:4px 0 22px; flex-wrap:wrap; }
+  .analyze-bar .privacy { color:var(--ink-soft); font-size:13px; }
+  .analyze-bar button { padding:13px 34px; font-size:15px; }
 </style>
 </head>
 <body>
@@ -157,9 +167,10 @@
 <div class="rule"></div>
 
 <main>
+  <!-- 01 API KEYS -->
   <section class="card" id="keys">
-    <div class="step"><span class="num">·</span><span class="label">API keys</span></div>
-    <p class="lead">Paste keys to switch on the real backends. Saved keys are remembered across restarts (stored privately in <code>~/.groupthink/keys.json</code>). Leave a field blank to keep what's already saved.</p>
+    <div class="step"><span class="num">01</span><span class="label">API keys</span></div>
+    <p class="lead">Saved on this computer and remembered next time (stored privately in <code>~/.groupthink/keys.json</code>). Leave a field blank to keep what's already saved.</p>
     <div class="row" style="margin-top:14px">
       <input type="password" id="key-anthropic" placeholder="Anthropic API key (sk-ant-…)" style="flex:1; min-width:230px" autocomplete="off" />
       <input type="password" id="key-assembly" placeholder="AssemblyAI API key" style="flex:1; min-width:230px" autocomplete="off" />
@@ -169,36 +180,48 @@
     </div>
   </section>
 
-  <section class="card" id="intake">
-    <div class="step"><span class="num">01</span><span class="label">Sessions</span></div>
-    <p class="lead">Point GroupThink at your session videos — or try a no-key demo with synthetic footage.</p>
-
-    <div class="stack" style="margin-top:18px">
+  <!-- 02 PROJECT -->
+  <section class="card" id="project">
+    <div class="step"><span class="num">02</span><span class="label">Project</span></div>
+    <div class="grid2">
       <div>
-        <label class="field-label" for="video-title">Video title <span class="opt">— shown on the opening card</span></label>
+        <label class="field-label" for="video-title">Project title <span class="opt">— shown on the opening card</span></label>
         <input type="text" id="video-title" placeholder="e.g. Snack Study — Key Themes" />
       </div>
-
-      <div class="row">
-        <input type="text" id="project-name" placeholder="Project name (internal)" value="Focus Group Study" style="max-width:240px" />
-        <button class="secondary" type="button" onclick="document.getElementById('files').click()">Choose videos</button>
-        <input type="file" id="files" accept="video/*" multiple class="hidden" />
-        <span id="file-count" class="muted"></span>
-        <span style="flex:1"></span>
-        <button class="secondary" onclick="runDemo()">Try the demo</button>
-        <button id="analyze-btn" onclick="analyze()">Analyze</button>
-      </div>
-
       <div>
-        <label class="field-label" for="folder-path">Or a folder on this computer <span class="opt">— read in place, no upload (best for big files)</span></label>
+        <label class="field-label" for="project-name">Project name <span class="opt">— for your reference</span></label>
+        <input type="text" id="project-name" value="Focus Group Study" />
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 VIDEO FOOTAGE -->
+  <section class="card" id="footage">
+    <div class="step"><span class="num">03</span><span class="label">Video footage</span></div>
+    <p class="lead">Choose the session videos, or point at a folder on this computer.</p>
+    <div class="stack" style="margin-top:16px">
+      <div class="row">
+        <button class="secondary" type="button" onclick="document.getElementById('files').click()">Choose videos…</button>
+        <input type="file" id="files" accept="video/*" multiple class="hidden" />
+        <span id="file-count" class="muted">No files selected</span>
+      </div>
+      <div class="or">or</div>
+      <div>
+        <label class="field-label" for="folder-path">Folder on this computer <span class="opt">— read in place, no upload (best for big files)</span></label>
         <input type="text" id="folder-path" placeholder="/Users/you/…/Sessions" />
         <label class="check" style="margin-top:10px">
           <input type="checkbox" id="recursive" /> <span>Include videos in subfolders</span>
         </label>
       </div>
+    </div>
+  </section>
 
+  <!-- 04 TOPICS & GUIDE -->
+  <section class="card" id="brief">
+    <div class="step"><span class="num">04</span><span class="label">Topics &amp; discussion guide <span class="sub">— optional</span></span></div>
+    <div class="stack" style="margin-top:4px">
       <div>
-        <label class="field-label" for="topics">Topics to focus on <span class="opt">(optional)</span> — what themes should GroupThink look for?</label>
+        <label class="field-label" for="topics">Topics to focus on — what themes should GroupThink look for?</label>
         <textarea id="topics" placeholder="Price sensitivity and value for money
 Trust in the brand
 Ease of setup and first use" style="min-height:84px"></textarea>
@@ -207,13 +230,18 @@ Ease of setup and first use" style="min-height:84px"></textarea>
           <span>Only find themes within these topics <span class="opt">— otherwise GroupThink also surfaces others it finds</span></span>
         </label>
       </div>
-
       <div>
-        <label class="field-label" for="discussion-guide">Discussion guide <span class="opt">(optional)</span> — paste your research guide for more context</label>
+        <label class="field-label" for="discussion-guide">Discussion guide — paste your research guide for more context</label>
         <textarea id="discussion-guide" placeholder="The moderator's discussion guide — the questions and structure used in the sessions…" style="min-height:110px"></textarea>
       </div>
     </div>
   </section>
+
+  <!-- ANALYZE -->
+  <div class="analyze-bar">
+    <span class="privacy">Reads audio only — your video never leaves this computer.</span>
+    <button id="analyze-btn" onclick="analyze()">Analyze</button>
+  </div>
 
   <section class="card hidden" id="progress">
     <div class="step"><span class="num">·</span><span class="label" id="progress-title">Working</span></div>
@@ -296,7 +324,7 @@ async function forgetKeys() {
 
 document.getElementById('files').addEventListener('change', (e) => {
   const n = e.target.files.length;
-  document.getElementById('file-count').textContent = n ? n + ' file(s) selected' : '';
+  document.getElementById('file-count').textContent = n ? n + ' file(s) selected' : 'No files selected';
 });
 
 function busy(btn, on, label) {
@@ -343,6 +371,8 @@ async function startJob(url, opts, title, onResult) {
   showProgress(title);
   document.getElementById('review').classList.add('hidden');
   document.getElementById('output').classList.add('hidden');
+  // Tuck the Analyze bar away while a job is in flight; bring it back if needed.
+  const ab = document.querySelector('.analyze-bar'); if (ab) ab.classList.add('hidden');
   try {
     const res = await fetch(url, opts);
     if (!res.ok) throw new Error(await res.text());
@@ -376,12 +406,6 @@ function showAnalyzeWarning(msg) {
   const el = document.getElementById('analyze-warning');
   if (msg) { el.textContent = 'Note: ' + msg; el.classList.remove('hidden'); }
   else { el.textContent = ''; el.classList.add('hidden'); }
-}
-
-async function runDemo() {
-  startJob('/api/demo', { method:'POST' }, 'Building demo & analyzing', (result) => {
-    report = result.report; hideProgress(); renderThemes(); showAnalyzeWarning(result.warning);
-  });
 }
 
 function renderThemes() {
