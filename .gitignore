@@ -15,3 +15,10 @@ venv/
 
 # Secrets
 .env
+
+# Desktop build artifacts
+build/
+dist/
+build-venv/
+packaging/vendor/
+*.spec.bak
