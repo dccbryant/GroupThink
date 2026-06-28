@@ -187,6 +187,20 @@
   .analyze-bar { display:flex; align-items:center; justify-content:flex-end; gap:14px; flex-wrap:wrap; }
   .analyze-bar .privacy { color:var(--ink-soft); font-size:13px; text-align:right; }
   .analyze-bar button { padding:12px 32px; font-size:15px; }
+
+  /* Back / forward navigation in the topbar */
+  .nav { display:flex; align-items:center; gap:2px; }
+  .nav button.navbtn {
+    background:transparent; color:var(--ink-soft); border:1px solid transparent;
+    border-radius:var(--radius); padding:4px 9px; font-size:16px; line-height:1;
+    font-family:inherit;
+  }
+  .nav button.navbtn:hover:not(:disabled) { color:var(--accent); background:transparent; border-color:transparent; }
+  .nav button.navbtn:disabled { opacity:.3; }
+  .nav button.navbtn:disabled:hover { background:transparent; border-color:transparent; }
+
+  /* Cancel button styling on the progress card */
+  .progress-actions { display:flex; justify-content:flex-end; margin-top:14px; }
 </style>
 </head>
 <body>
@@ -197,6 +211,10 @@
     <span class="tagline">Focus-group footage → themed reel</span>
   </div>
   <div class="status">
+    <span class="nav" aria-label="Navigation">
+      <button class="navbtn" id="nav-back" onclick="navBack()" title="Back" aria-label="Back" disabled>&larr;</button>
+      <button class="navbtn" id="nav-forward" onclick="navForward()" title="Forward" aria-label="Forward" disabled>&rarr;</button>
+    </span>
     <span id="badge-asr" class="badge">transcriber</span>
     <span id="badge-analyzer" class="badge">analyzer</span>
   </div>
@@ -292,6 +310,9 @@ Ease of setup and first use" style="min-height:84px"></textarea>
       <span id="progress-step" class="muted">Starting…</span>
       <span id="progress-pct" class="pct">0%</span>
     </div>
+    <div class="progress-actions">
+      <button class="secondary" id="cancel-btn" onclick="cancelJob()">Cancel</button>
+    </div>
   </section>
 
   <section class="card hidden" id="review">
@@ -302,6 +323,7 @@ Ease of setup and first use" style="min-height:84px"></textarea>
     <div class="row" style="margin-top:14px">
       <button onclick="renderReport()">Render reel &amp; timelines</button>
       <button class="secondary" onclick="saveDoc()">Save to Word doc</button>
+      <button class="ghost" onclick="startOver()">Start a new analysis</button>
       <span id="render-status" class="muted"></span>
     </div>
   </section>
@@ -310,6 +332,9 @@ Ease of setup and first use" style="min-height:84px"></textarea>
     <div class="step"><span class="num">03</span><span class="label">Deliverables</span></div>
     <div id="downloads"></div>
     <video id="preview" controls class="hidden"></video>
+    <div class="row" style="margin-top:16px">
+      <button class="secondary" onclick="startOver()">Start a new analysis</button>
+    </div>
   </section>
 </main>
 
@@ -317,6 +342,84 @@ Ease of setup and first use" style="min-height:84px"></textarea>
 let projectId = null;
 let report = null;
 let isDesktop = false;  // true when running inside the bundled .app
+let currentJobId = null;     // id of the in-flight backend job, if any
+let cancelling = false;      // user pressed Cancel; ignore the next "error" tick
+
+// --- Screen navigation ---------------------------------------------------- //
+// History of screens the user has seen; the back/forward arrows walk this.
+// "progress" is transient and never lands in history.
+const SCREENS = ['intake', 'review', 'output'];
+let navHistory = ['intake'];
+let navIndex = 0;
+let navInProgress = false;  // suppress re-pushes when navBack/navForward calls showScreen
+
+function showScreen(name) {
+  // Update card visibility based on the screen name.
+  document.getElementById('intake-cols').classList.toggle('hidden', name !== 'intake');
+  document.getElementById('progress').classList.toggle('hidden', name !== 'progress');
+  document.getElementById('review').classList.toggle('hidden', !(name === 'review' || name === 'output') || !report);
+  document.getElementById('output').classList.toggle('hidden', name !== 'output');
+  if (!navInProgress && SCREENS.includes(name)) {
+    // Truncate any forward history when navigating somewhere new.
+    navHistory = navHistory.slice(0, navIndex + 1);
+    if (navHistory[navIndex] !== name) {
+      navHistory.push(name);
+      navIndex = navHistory.length - 1;
+    }
+  }
+  updateNavButtons();
+  window.scrollTo(0, 0);
+}
+
+function updateNavButtons() {
+  const back = document.getElementById('nav-back');
+  const fwd = document.getElementById('nav-forward');
+  if (!back || !fwd) return;
+  back.disabled = navIndex <= 0;
+  // Forward only enabled if there's somewhere further AND we still have the
+  // data needed to show it (e.g. don't offer forward to review with no report).
+  let canForward = navIndex < navHistory.length - 1;
+  if (canForward) {
+    const next = navHistory[navIndex + 1];
+    if ((next === 'review' || next === 'output') && !report) canForward = false;
+  }
+  fwd.disabled = !canForward;
+}
+
+function navBack() {
+  if (navIndex <= 0) return;
+  navIndex -= 1;
+  navInProgress = true;
+  showScreen(navHistory[navIndex]);
+  navInProgress = false;
+  updateNavButtons();
+}
+function navForward() {
+  if (navIndex >= navHistory.length - 1) return;
+  navIndex += 1;
+  navInProgress = true;
+  showScreen(navHistory[navIndex]);
+  navInProgress = false;
+  updateNavButtons();
+}
+
+function startOver() {
+  if (!confirm('Start a new analysis? Current results will stay saved on disk but the page will reset.')) return;
+  projectId = null;
+  report = null;
+  navHistory = ['intake'];
+  navIndex = 0;
+  navInProgress = true;
+  showScreen('intake');
+  navInProgress = false;
+  updateNavButtons();
+  // Clear the in-page review/output content so nothing flashes if the user navigates.
+  document.getElementById('themes').innerHTML = '';
+  document.getElementById('downloads').innerHTML = '';
+  const v = document.getElementById('preview');
+  v.removeAttribute('src'); v.classList.add('hidden');
+  showAnalyzeWarning(null);
+}
 
 async function loadStatus() {
   const s = await (await fetch('/api/status')).json();
@@ -381,6 +484,9 @@ function busy(btn, on, label) {
 function showProgress(title) {
   document.getElementById('progress-title').textContent = title;
   document.getElementById('progress-bar').classList.remove('error');
+  const cancelBtn = document.getElementById('cancel-btn');
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = 'Cancel';
   setProgress(0, 'Starting…');
   document.getElementById('progress').classList.remove('hidden');
 }
@@ -394,36 +500,67 @@ function progressError(msg) {
   document.getElementById('progress-bar').classList.add('error');
   document.getElementById('progress-title').textContent = 'Something went wrong';
   document.getElementById('progress-step').textContent = msg || 'Unknown error';
+  document.getElementById('cancel-btn').textContent = 'Back to intake';
+  document.getElementById('cancel-btn').disabled = false;
 }
 function hideProgress() { document.getElementById('progress').classList.add('hidden'); }
 
 // Poll a background job until it finishes, driving the progress bar.
 function pollJob(jobId, onDone) {
   const tick = async () => {
+    if (currentJobId !== jobId) return;  // a newer job superseded this poller
     let j;
     try { j = await (await fetch('/api/jobs/' + jobId)).json(); }
-    catch (e) { progressError('Lost connection to the server.'); return; }
+    catch (e) {
+      if (currentJobId === jobId) progressError('Lost connection to the server.');
+      return;
+    }
     setProgress(j.progress, j.step);
-    if (j.status === 'done') { onDone(j.result); return; }
-    if (j.status === 'error') { progressError(j.error); return; }
+    if (j.status === 'done')      { currentJobId = null; onDone(j.result); return; }
+    if (j.status === 'cancelled') { currentJobId = null; return; }
+    if (j.status === 'error') {
+      // If the user just hit Cancel, suppress the consequent error (e.g. a
+      // Claude/transcription failure caused by us tearing things down).
+      if (cancelling) { currentJobId = null; cancelling = false; return; }
+      progressError(j.error); return;
+    }
     setTimeout(tick, 900);
   };
   tick();
 }
 
+async function cancelJob() {
+  const btn = document.getElementById('cancel-btn');
+  // Two modes: while running, "Cancel"; after an error, "Back to intake".
+  if (currentJobId) {
+    cancelling = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Cancelling…';
+    try {
+      await fetch('/api/jobs/' + currentJobId + '/cancel', { method:'POST' });
+    } catch (e) { /* fall through — we still tear down the UI */ }
+    currentJobId = null;
+  }
+  // Return to intake regardless of whether the backend acknowledged.
+  hideProgress();
+  // Decide where to land: if we have a previous screen we can show, go there;
+  // otherwise fall back to intake. This makes Cancel during a re-render return
+  // to the review where it was kicked off.
+  const fallback = (navIndex > 0) ? navHistory[navIndex] : 'intake';
+  showScreen(fallback);
+}
+
 async function startJob(url, opts, title, onResult) {
-  showProgress(title);
+  cancelling = false;
+  // Show the progress card; keep intake/review/output hidden until we know
+  // which screen comes after the job.
+  document.getElementById('intake-cols').classList.add('hidden');
   document.getElementById('review').classList.add('hidden');
   document.getElementById('output').classList.add('hidden');
-  // Tuck the whole intake away while a job is in flight so the progress
-  // panel and the eventual review/output sections own the screen.
-  const cols = document.getElementById('intake-cols'); if (cols) cols.classList.add('hidden');
-  // Ensure the progress card is in view (fixes "progress pushed below fold"
-  // when the user had scrolled while filling the intake).
+  showProgress(title);
+  updateNavButtons();
+  // Snap into view in case the user had scrolled.
   window.scrollTo(0, 0);
-  // Belt-and-suspenders: after the layout has reflowed, snap the progress
-  // card into view explicitly. Some WebKit builds ignore scrollTo when called
-  // immediately after a display:none toggle.
   requestAnimationFrame(() => {
     const p = document.getElementById('progress');
     if (p) p.scrollIntoView({ block:'start' });
@@ -433,6 +570,7 @@ async function startJob(url, opts, title, onResult) {
     if (!res.ok) throw new Error(await res.text());
     const { job_id, project_id } = await res.json();
     if (project_id) projectId = project_id;
+    currentJobId = job_id;
     pollJob(job_id, onResult);
   } catch (e) { progressError(e.message); }
 }
@@ -453,7 +591,11 @@ async function analyze() {
   fd.append('discussion_guide', document.getElementById('discussion-guide').value);
   for (const f of files) fd.append('files', f);
   startJob('/api/projects', { method:'POST', body: fd }, 'Analyzing sessions', (result) => {
-    report = result.report; hideProgress(); renderThemes(); showAnalyzeWarning(result.warning);
+    report = result.report;
+    hideProgress();
+    renderThemes();
+    showAnalyzeWarning(result.warning);
+    showScreen('review');
   });
 }
 
@@ -495,8 +637,7 @@ function renderThemes() {
     div.innerHTML = inner;
     wrap.appendChild(div);
   });
-  document.getElementById('review').classList.remove('hidden');
-  document.getElementById('output').classList.add('hidden');
+  // Visibility is owned by showScreen() — don't toggle here.
 }
 
 function quoteHtml(ti, si, qi, q) {
@@ -570,7 +711,9 @@ async function renderReport() {
     method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(report)
   });
   startJob(`/api/projects/${projectId}/render`, { method:'POST' }, 'Rendering reel & timelines', (result) => {
-    hideProgress(); showDownloads(result.artifacts, result.warning);
+    hideProgress();
+    showDownloads(result.artifacts, result.warning);
+    showScreen('output');
   });
 }
 
@@ -591,7 +734,7 @@ function showDownloads(artifacts, warning) {
   }
   const v = document.getElementById('preview');
   if (artifacts.mp4) { v.src = artifacts.mp4; v.classList.remove('hidden'); }
-  document.getElementById('output').classList.remove('hidden');
+  // Visibility of the #output card is owned by showScreen().
 }
 
 function escapeHtml(s) {
@@ -599,6 +742,7 @@ function escapeHtml(s) {
 }
 
 loadStatus();
+updateNavButtons();
 </script>
 <div id="toast" class="toast" role="status"></div>
 </body>
