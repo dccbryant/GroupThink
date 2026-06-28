@@ -3,6 +3,8 @@
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 # SPECPATH is provided by PyInstaller and points at this file's directory.
 ROOT = Path(SPECPATH).resolve().parent  # noqa: F821 — SPECPATH injected by PyInstaller
 APP_PKG = ROOT / "groupthink"
@@ -24,7 +26,9 @@ for name in ("ffmpeg", "ffprobe"):
     if src.exists():
         binaries.append((str(src), "vendor/bin"))
 
-# Imports PyInstaller's static analysis can miss (uvicorn loads these lazily).
+# Imports PyInstaller's static analysis can miss (uvicorn loads these lazily;
+# desktop.py uses an absolute import of `groupthink.web.app` that needs the
+# whole groupthink package to be collected even if a static walk misses it).
 hidden_imports = [
     "uvicorn.logging",
     "uvicorn.loops",
@@ -44,6 +48,9 @@ hidden_imports = [
     "PIL.ImageDraw",
     "PIL.ImageFont",
 ]
+# Force-include every module under groupthink/ so the launcher's absolute
+# import (and anything web.app imports transitively) can resolve at runtime.
+hidden_imports += collect_submodules("groupthink")
 
 block_cipher = None
 
