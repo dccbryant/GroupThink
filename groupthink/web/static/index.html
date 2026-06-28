@@ -157,10 +157,13 @@
   .intake-cols .card { padding:16px 18px; }
   .intake-cols .card .step { margin-bottom:10px; }
   .intake-cols .card .lead { font-size:12.5px; margin:0 0 8px; }
+  /* Right-column card fills the full column height (matching the left
+     column), with the analyze bar sitting as its footer. */
   .intake-cols .col.right .card.fill { flex:1; display:flex; flex-direction:column; }
   .intake-cols .col.right .card.fill .stack { flex:1; display:flex; flex-direction:column; }
   .intake-cols .col.right .card.fill .guide-wrap { flex:1; display:flex; flex-direction:column; }
   .intake-cols .col.right .card.fill textarea.guide { flex:1; min-height:140px; }
+  .intake-cols .col.right .card.fill .analyze-bar { margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
   /* Fall back to single column on narrower windows. */
   @media (max-width:900px) {
     .intake-cols { grid-template-columns:1fr; }
@@ -260,13 +263,13 @@ Ease of setup and first use" style="min-height:84px"></textarea>
             <textarea id="discussion-guide" class="guide" placeholder="The moderator's discussion guide — the questions and structure used in the sessions…"></textarea>
           </div>
         </div>
-      </section>
 
-      <!-- ANALYZE — anchored to the bottom-right corner of the columns area -->
-      <div class="analyze-bar">
-        <span class="privacy">Reads audio only — your video<br />never leaves this computer.</span>
-        <button id="analyze-btn" onclick="analyze()">Analyze</button>
-      </div>
+        <!-- ANALYZE — footer of the 04 card, anchored to the bottom-right -->
+        <div class="analyze-bar">
+          <span class="privacy">Reads audio only — your video<br />never leaves this computer.</span>
+          <button id="analyze-btn" onclick="analyze()">Analyze</button>
+        </div>
+      </section>
     </div>
   </div>
 
