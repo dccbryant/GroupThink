@@ -26,6 +26,7 @@ from ..analysis import build_analyzer, resolve_report
 from ..assembly.document import build_doc_html, build_docx
 from ..config import Settings, load_settings
 from ..models import AnalysisBrief
+from ..runtime import is_frozen
 from ..sources import list_videos
 from ..demo import make_demo_videos
 from ..models import ThemeReport
@@ -227,6 +228,10 @@ def status() -> dict:
         "anthropic_from_env": bool(load_settings().anthropic_api_key),
         "assemblyai_from_env": bool(load_settings().assemblyai_api_key),
         "keys_saved": _KEYS_FILE.exists(),
+        # True when running as the bundled macOS .app. The UI uses this to
+        # switch download links to "save to Downloads" buttons, since pywebview
+        # navigates the window on a download link instead of saving a file.
+        "desktop": is_frozen(),
     }
 
 
@@ -419,3 +424,68 @@ def download(project_id: str, artifact: str):
     if not path.exists():
         raise HTTPException(404, "Artifact not rendered yet.")
     return FileResponse(str(path), media_type=media_type, filename=path.name)
+
+
+# --------------------------------------------------------------------------- #
+# Save-to-Downloads (desktop .app)
+#
+# pywebview navigates the window to a download URL rather than triggering a
+# browser-style save dialog. The desktop UI uses this endpoint to write the
+# artifact straight to ~/Downloads/, leaving the app exactly where it was.
+# --------------------------------------------------------------------------- #
+
+
+def _unique_destination(directory: Path, filename: str) -> Path:
+    """Pick a path under `directory` that doesn't clobber an existing file."""
+    dest = directory / filename
+    if not dest.exists():
+        return dest
+    stem, suffix = dest.stem, dest.suffix
+    for n in range(2, 1000):
+        candidate = directory / f"{stem} ({n}){suffix}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError("Couldn't find a free filename in Downloads.")
+
+
+def _safe_filename(name: str, default: str) -> str:
+    cleaned = "".join(c for c in (name or "") if c.isalnum() or c in " -_().").strip()
+    return cleaned or default
+
+
+@app.post("/api/projects/{project_id}/save/{artifact}")
+def save_artifact(project_id: str, artifact: str) -> dict:
+    """Copy an artifact (or the generated Word doc) to ~/Downloads/."""
+    downloads = Path.home() / "Downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    report = _load_report(project_id)  # 404 if no report yet
+    project_name = _safe_filename(report.project, "GroupThink")
+
+    if artifact == "document":
+        try:
+            data = build_docx(report)
+            filename = f"{project_name}.docx"
+        except ImportError:
+            data = build_doc_html(report).encode("utf-8")
+            filename = f"{project_name}.doc"
+        dest = _unique_destination(downloads, filename)
+        dest.write_bytes(data)
+        return {"saved": str(dest), "filename": dest.name}
+
+    spec = _ARTIFACT_FILES.get(artifact)
+    if spec is None:
+        raise HTTPException(404, "Unknown artifact.")
+    rel, _media = spec
+    src = _project_dir(project_id) / rel
+    if not src.exists():
+        raise HTTPException(404, "Artifact not rendered yet.")
+    # Rename the saved copy to something more human than the internal name.
+    nice_names = {
+        "mp4": f"{project_name} — highlight reel.mp4",
+        "edl": f"{project_name}.edl",
+        "fcpxml": f"{project_name}.fcpxml",
+        "report_json": f"{project_name} report.json",
+    }
+    dest = _unique_destination(downloads, nice_names.get(artifact, src.name))
+    shutil.copy2(src, dest)
+    return {"saved": str(dest), "filename": dest.name}
