@@ -5,128 +5,242 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>GroupThink</title>
 <style>
-  :root { --bg:#0f1419; --panel:#1a2129; --line:#2b3642; --text:#e6edf3; --muted:#8b98a5; --accent:#4c8bf5; --accent2:#2ea043; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
-  header { padding:18px 28px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
-  header h1 { font-size:20px; margin:0; }
-  header .tag { font-size:12px; color:var(--muted); }
-  .badge { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
-  .badge.live { color:var(--accent2); border-color:var(--accent2); }
-  main { max-width:980px; margin:0 auto; padding:28px; }
-  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:20px; }
-  h2 { font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 14px; }
-  button { background:var(--accent); color:#fff; border:0; border-radius:7px; padding:9px 16px; font-size:14px; cursor:pointer; }
-  button.secondary { background:transparent; border:1px solid var(--line); color:var(--text); }
-  button.ghost { background:transparent; border:0; color:var(--muted); padding:4px 8px; }
-  button:disabled { opacity:.5; cursor:default; }
-  input[type=text], textarea { width:100%; background:#0d1117; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:8px 10px; font-size:14px; font-family:inherit; }
-  textarea { resize:vertical; min-height:46px; }
-  label.file { display:inline-block; }
+  /* ---- Braun / Dieter Rams: paper ground, near-black grotesque, one amber accent ---- */
+  :root {
+    --paper:#EDEBE3;        /* warm off-white ground */
+    --surface:#FBFAF6;      /* card */
+    --ink:#1A1916;          /* near-black, warm */
+    --ink-soft:#76726A;     /* secondary text */
+    --line:#DFDCD2;         /* hairline */
+    --line-strong:#CFCBBF;
+    --accent:#C2562C;       /* Braun functional amber/orange */
+    --accent-press:#A8481F;
+    --accent-tint:#EFE2D8;  /* focus ring / soft fill */
+    --error:#A93B2B;
+    --radius:3px;
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Helvetica Neue", Helvetica, Inter, -apple-system, Arial, sans-serif;
+    font-size:15px; line-height:1.55;
+  }
+
+  /* Header */
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    max-width:840px; margin:0 auto; padding:26px 28px 18px;
+  }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .brand .mark { width:14px; height:14px; background:var(--accent); border-radius:2px; }
+  .wordmark { font-size:19px; font-weight:600; letter-spacing:-0.01em; }
+  .tagline { color:var(--ink-soft); font-size:13px; margin-left:4px; }
+  .status { display:flex; gap:10px; }
+  .badge {
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:11.5px; letter-spacing:.02em; color:var(--ink-soft);
+    border:1px solid var(--line); border-radius:999px; padding:4px 11px; background:var(--surface);
+  }
+  .badge::before { content:""; width:7px; height:7px; border-radius:50%; border:1px solid var(--ink-soft); box-sizing:border-box; }
+  .badge.live { color:var(--ink); border-color:var(--line-strong); }
+  .badge.live::before { background:var(--accent); border-color:var(--accent); }
+
+  .rule { max-width:840px; margin:0 auto; border-top:1px solid var(--line); }
+
+  /* Layout */
+  main { max-width:840px; margin:0 auto; padding:28px; }
+  .card {
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:26px 28px; margin-bottom:22px;
+  }
+
+  /* Numbered section headers */
+  .step { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .step .num {
+    display:inline-grid; place-items:center; width:26px; height:26px;
+    border:1px solid var(--line-strong); border-radius:2px;
+    font-size:12px; font-variant-numeric:tabular-nums; color:var(--ink);
+  }
+  .step .label { text-transform:uppercase; letter-spacing:.16em; font-size:12px; font-weight:600; color:var(--ink-soft); }
+
+  .lead { color:var(--ink-soft); font-size:13.5px; margin:0 0 4px; }
+  .muted { color:var(--ink-soft); font-size:13px; }
+  .field-label { display:block; font-size:12px; letter-spacing:.02em; color:var(--ink-soft); margin:0 0 6px; }
+  .field-label .opt { opacity:.7; }
+  .stack > * + * { margin-top:18px; }
   .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  .theme { border:1px solid var(--line); border-radius:9px; padding:16px; margin-bottom:14px; }
-  .theme .title-input { font-size:17px; font-weight:600; margin-bottom:8px; }
-  .quote { border-left:3px solid var(--accent); padding:8px 12px; margin:8px 0; background:#0d1117; border-radius:0 6px 6px 0; }
-  .subtheme { margin:12px 0 4px; padding-left:14px; border-left:2px solid var(--line); }
-  .subtitle-input { font-size:14px; font-weight:600; width:100%; background:#0d1117; border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 9px; margin-bottom:6px; }
-  .quote .meta { font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; justify-content:space-between; }
-  .muted { color:var(--muted); font-size:13px; }
-  a.dl { color:var(--accent); text-decoration:none; margin-right:14px; font-size:14px; }
-  video { width:100%; border-radius:8px; margin-top:12px; background:#000; }
-  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--muted); border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  .bar { height:10px; background:#0d1117; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
+
+  /* Controls */
+  input[type=text], input[type=password], textarea {
+    width:100%; background:#fff; color:var(--ink);
+    border:1px solid var(--line-strong); border-radius:var(--radius);
+    padding:11px 12px; font-size:15px; font-family:inherit; line-height:1.5;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input::placeholder, textarea::placeholder { color:#A8A399; }
+  input[type=text]:focus, input[type=password]:focus, textarea:focus {
+    outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-tint);
+  }
+  textarea { resize:vertical; min-height:46px; }
+  input[type=checkbox] { accent-color:var(--accent); width:15px; height:15px; vertical-align:middle; }
+  label.check { display:inline-flex; align-items:flex-start; gap:9px; color:var(--ink-soft); font-size:13.5px; cursor:pointer; line-height:1.45; }
+
+  /* Buttons */
+  button {
+    background:var(--accent); color:#fff; border:1px solid var(--accent);
+    border-radius:var(--radius); padding:10px 18px; font-size:14px; font-weight:500;
+    font-family:inherit; cursor:pointer; letter-spacing:.01em; transition:background .15s, border-color .15s, color .15s;
+  }
+  button:hover { background:var(--accent-press); border-color:var(--accent-press); }
+  button.secondary { background:#fff; color:var(--ink); border-color:var(--line-strong); }
+  button.secondary:hover { background:var(--surface); border-color:var(--accent); color:var(--accent); }
+  button.ghost { background:transparent; border-color:transparent; color:var(--ink-soft); padding:6px 8px; }
+  button.ghost:hover { color:var(--accent); background:transparent; }
+  button:disabled { opacity:.45; cursor:default; }
+  button:disabled:hover { background:var(--accent); border-color:var(--accent); }
+
+  /* Progress */
+  .bar { height:6px; background:var(--line); border-radius:999px; overflow:hidden; }
   .bar > i { display:block; height:100%; width:0%; background:var(--accent); transition:width .35s ease; }
-  .bar.error > i { background:#d83c3c; }
-  .pct { font-variant-numeric:tabular-nums; color:var(--muted); font-size:13px; }
+  .bar.error > i { background:var(--error); }
+  .pct { font-variant-numeric:tabular-nums; color:var(--ink-soft); font-size:13px; }
+
+  /* Review — themes */
+  .theme { border:1px solid var(--line); border-radius:var(--radius); padding:18px 18px 6px; margin-bottom:16px; background:#fff; }
+  .theme .title-input {
+    font-size:17px; font-weight:600; border:0; border-bottom:1px solid var(--line);
+    border-radius:0; padding:4px 0 8px; margin-bottom:10px; background:transparent;
+  }
+  .theme .title-input:focus { box-shadow:none; border-bottom-color:var(--accent); }
+  .theme textarea { border:0; padding:0 0 6px; background:transparent; color:var(--ink-soft); font-size:14px; min-height:0; }
+  .theme textarea:focus { box-shadow:none; }
+  .subtheme { margin:10px 0 4px; padding-left:16px; border-left:2px solid var(--accent-tint); }
+  .subtitle-input {
+    font-size:14px; font-weight:600; width:100%; border:0; border-bottom:1px solid var(--line);
+    border-radius:0; padding:4px 0 6px; margin-bottom:6px; background:transparent;
+  }
+  .subtitle-input:focus { box-shadow:none; border-bottom-color:var(--accent); }
+  .quote { border-left:2px solid var(--accent); padding:7px 0 7px 14px; margin:9px 0; }
+  .quote > div:last-child { font-style:italic; }
+  .meta { font-size:12px; color:var(--ink-soft); margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; gap:8px; font-variant-numeric:tabular-nums; }
+
+  /* Deliverables */
+  a.dl {
+    display:inline-flex; align-items:center; gap:6px; color:var(--ink); text-decoration:none;
+    border:1px solid var(--line-strong); border-radius:var(--radius); padding:8px 13px;
+    margin:0 10px 10px 0; font-size:14px; transition:border-color .15s, color .15s;
+  }
+  a.dl:hover { border-color:var(--accent); color:var(--accent); }
+  video { width:100%; border-radius:var(--radius); margin-top:14px; background:#000; border:1px solid var(--line); }
+
+  .spinner { display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.5); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:4px; }
+  .secondary .spinner, .ghost .spinner { border-color:rgba(0,0,0,.25); border-top-color:var(--ink); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  code { font-family:"SF Mono", ui-monospace, Menlo, monospace; font-size:12.5px; background:var(--paper); padding:1px 5px; border-radius:3px; }
   .hidden { display:none; }
 </style>
 </head>
 <body>
-<header>
-  <h1>GroupThink</h1>
-  <span class="tag">focus-group footage &rarr; themed highlight reel</span>
-  <span style="flex:1"></span>
-  <span id="badge-asr" class="badge">transcriber</span>
-  <span id="badge-analyzer" class="badge">analyzer</span>
+<header class="topbar">
+  <div class="brand">
+    <span class="mark"></span>
+    <span class="wordmark">GroupThink</span>
+    <span class="tagline">Focus-group footage → themed reel</span>
+  </div>
+  <div class="status">
+    <span id="badge-asr" class="badge">transcriber</span>
+    <span id="badge-analyzer" class="badge">analyzer</span>
+  </div>
 </header>
+<div class="rule"></div>
 
 <main>
-  <div class="panel" id="keys">
-    <h2>API keys</h2>
-    <p class="muted">Paste keys to switch on the real backends. Saved keys are remembered across restarts (stored in a private file in your home folder, <code>~/.groupthink/keys.json</code>). Leave a field blank to keep what's already saved.</p>
-    <div class="row" style="margin-top:12px">
-      <input type="password" id="key-anthropic" placeholder="Anthropic API key (sk-ant-&hellip;)" style="flex:1;min-width:240px" autocomplete="off" />
-      <input type="password" id="key-assembly" placeholder="AssemblyAI API key" style="flex:1;min-width:240px" autocomplete="off" />
+  <section class="card" id="keys">
+    <div class="step"><span class="num">·</span><span class="label">API keys</span></div>
+    <p class="lead">Paste keys to switch on the real backends. Saved keys are remembered across restarts (stored privately in <code>~/.groupthink/keys.json</code>). Leave a field blank to keep what's already saved.</p>
+    <div class="row" style="margin-top:14px">
+      <input type="password" id="key-anthropic" placeholder="Anthropic API key (sk-ant-…)" style="flex:1; min-width:230px" autocomplete="off" />
+      <input type="password" id="key-assembly" placeholder="AssemblyAI API key" style="flex:1; min-width:230px" autocomplete="off" />
       <button onclick="saveKeys()">Save keys</button>
-      <button class="ghost" onclick="forgetKeys()">Forget saved keys</button>
+      <button class="ghost" onclick="forgetKeys()">Forget</button>
       <span id="keys-status" class="muted"></span>
     </div>
-  </div>
+  </section>
 
-  <div class="panel" id="intake">
-    <h2>1 &middot; Sessions</h2>
-    <p class="muted">Upload your session videos, or try a no-key demo with synthetic footage.</p>
-    <input type="text" id="video-title" placeholder="Video title — shown on the opening card (e.g. “Snack Study — Key Themes”)" style="width:100%; margin:12px 0" />
-    <div class="row">
-      <input type="text" id="project-name" placeholder="Project name (internal)" value="Focus Group Study" style="max-width:240px" />
-      <label class="file secondary" style="padding:0">
+  <section class="card" id="intake">
+    <div class="step"><span class="num">01</span><span class="label">Sessions</span></div>
+    <p class="lead">Point GroupThink at your session videos — or try a no-key demo with synthetic footage.</p>
+
+    <div class="stack" style="margin-top:18px">
+      <div>
+        <label class="field-label" for="video-title">Video title <span class="opt">— shown on the opening card</span></label>
+        <input type="text" id="video-title" placeholder="e.g. Snack Study — Key Themes" />
+      </div>
+
+      <div class="row">
+        <input type="text" id="project-name" placeholder="Project name (internal)" value="Focus Group Study" style="max-width:240px" />
         <button class="secondary" type="button" onclick="document.getElementById('files').click()">Choose videos</button>
-      </label>
-      <input type="file" id="files" accept="video/*" multiple class="hidden" />
-      <span id="file-count" class="muted"></span>
-      <button id="analyze-btn" onclick="analyze()">Analyze</button>
-      <button class="secondary" onclick="runDemo()">Try the demo</button>
-    </div>
-    <input type="text" id="folder-path" placeholder="…or paste a folder path on this computer (reads in place — no upload, best for big files)" style="width:100%; margin-top:12px" />
-    <label class="muted" style="display:block; margin-top:10px; cursor:pointer">
-      <input type="checkbox" id="recursive" style="vertical-align:middle" /> Include videos in subfolders
-    </label>
+        <input type="file" id="files" accept="video/*" multiple class="hidden" />
+        <span id="file-count" class="muted"></span>
+        <span style="flex:1"></span>
+        <button class="secondary" onclick="runDemo()">Try the demo</button>
+        <button id="analyze-btn" onclick="analyze()">Analyze</button>
+      </div>
 
-    <div style="margin-top:18px">
-      <label class="muted" style="display:block; margin-bottom:6px">Topics to focus on <span style="opacity:.7">(optional)</span> — what themes do you want GroupThink to look for?</label>
-      <textarea id="topics" placeholder="e.g.
-Price sensitivity and value for money
+      <div>
+        <label class="field-label" for="folder-path">Or a folder on this computer <span class="opt">— read in place, no upload (best for big files)</span></label>
+        <input type="text" id="folder-path" placeholder="/Users/you/…/Sessions" />
+        <label class="check" style="margin-top:10px">
+          <input type="checkbox" id="recursive" /> <span>Include videos in subfolders</span>
+        </label>
+      </div>
+
+      <div>
+        <label class="field-label" for="topics">Topics to focus on <span class="opt">(optional)</span> — what themes should GroupThink look for?</label>
+        <textarea id="topics" placeholder="Price sensitivity and value for money
 Trust in the brand
-Ease of setup and first use" style="width:100%; min-height:84px"></textarea>
-      <label class="muted" style="display:block; margin-top:8px; cursor:pointer">
-        <input type="checkbox" id="restrict-topics" style="vertical-align:middle" />
-        Only find themes within these topics <span style="opacity:.7">(otherwise GroupThink also surfaces other themes it finds)</span>
-      </label>
-    </div>
+Ease of setup and first use" style="min-height:84px"></textarea>
+        <label class="check" style="margin-top:10px">
+          <input type="checkbox" id="restrict-topics" />
+          <span>Only find themes within these topics <span class="opt">— otherwise GroupThink also surfaces others it finds</span></span>
+        </label>
+      </div>
 
-    <div style="margin-top:18px">
-      <label class="muted" style="display:block; margin-bottom:6px">Discussion guide <span style="opacity:.7">(optional)</span> — paste your research guide so the AI has more context</label>
-      <textarea id="discussion-guide" placeholder="Paste the moderator's discussion guide here — the questions and structure used in the sessions…" style="width:100%; min-height:110px"></textarea>
+      <div>
+        <label class="field-label" for="discussion-guide">Discussion guide <span class="opt">(optional)</span> — paste your research guide for more context</label>
+        <textarea id="discussion-guide" placeholder="The moderator's discussion guide — the questions and structure used in the sessions…" style="min-height:110px"></textarea>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <div class="panel hidden" id="progress">
-    <h2 id="progress-title">Working</h2>
+  <section class="card hidden" id="progress">
+    <div class="step"><span class="num">·</span><span class="label" id="progress-title">Working</span></div>
     <div class="bar" id="progress-bar"><i id="progress-fill"></i></div>
-    <div class="row" style="margin-top:10px; justify-content:space-between">
-      <span id="progress-step" class="muted">Starting&hellip;</span>
+    <div class="row" style="margin-top:12px; justify-content:space-between">
+      <span id="progress-step" class="muted">Starting…</span>
       <span id="progress-pct" class="pct">0%</span>
     </div>
-  </div>
+  </section>
 
-  <div class="panel hidden" id="review">
-    <h2>2 &middot; Review themes</h2>
-    <p class="muted">Edit titles and summaries, drop quotes you don't want, then render. Timecodes come straight from the transcript.</p>
-    <p id="analyze-warning" class="hidden" style="color:#e0a93c; margin:0 0 14px"></p>
-    <div id="themes"></div>
-    <div class="row" style="margin-top:8px">
+  <section class="card hidden" id="review">
+    <div class="step"><span class="num">02</span><span class="label">Review</span></div>
+    <p class="lead">Edit titles and summaries, drop quotes you don't want, then render. Timecodes come straight from the transcript.</p>
+    <p id="analyze-warning" class="hidden" style="color:var(--accent); font-size:13.5px; margin:8px 0 14px"></p>
+    <div id="themes" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:14px">
       <button onclick="renderReport()">Render reel &amp; timelines</button>
       <button class="secondary" onclick="saveDoc()">Save to Word doc</button>
       <span id="render-status" class="muted"></span>
     </div>
-  </div>
+  </section>
 
-  <div class="panel hidden" id="output">
-    <h2>3 &middot; Deliverables</h2>
+  <section class="card hidden" id="output">
+    <div class="step"><span class="num">03</span><span class="label">Deliverables</span></div>
     <div id="downloads"></div>
     <video id="preview" controls class="hidden"></video>
-  </div>
+  </section>
 </main>
 
 <script>
@@ -359,10 +473,10 @@ function showDownloads(artifacts, warning) {
   const labels = { mp4:'Highlight reel (MP4)', edl:'Timeline (EDL)', fcpxml:'Timeline (FCPXML)', report_json:'Report (JSON)' };
   const dl = document.getElementById('downloads');
   const warn = warning
-    ? `<p style="color:#e0a93c; margin:0 0 12px"><strong>Note:</strong> ${escapeHtml(warning)}</p>`
+    ? `<p style="color:var(--accent); margin:0 0 14px; font-size:13.5px"><strong>Note:</strong> ${escapeHtml(warning)}</p>`
     : '';
   dl.innerHTML = warn + Object.entries(artifacts)
-    .map(([k, url]) => `<a class="dl" href="${url}" download>&darr; ${labels[k] || k}</a>`).join('');
+    .map(([k, url]) => `<a class="dl" href="${url}" download>↓ ${labels[k] || k}</a>`).join('');
   const v = document.getElementById('preview');
   if (artifacts.mp4) { v.src = artifacts.mp4; v.classList.remove('hidden'); }
   document.getElementById('output').classList.remove('hidden');
